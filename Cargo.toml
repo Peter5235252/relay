@@ -79,6 +79,9 @@ ttf-parser = { opt-level = 3 }
 ropey = { opt-level = 3 }
 
 [profile.release]
-strip = "symbols"
+opt-level = 3
 lto = "thin"
 codegen-units = 1
+strip = "symbols"
+panic = "abort"
+debug = false

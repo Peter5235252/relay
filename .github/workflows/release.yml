@@ -1,0 +1,81 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    name: Build Linux release
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            cmake \
+            clang \
+            libssl-dev \
+            libfontconfig1-dev \
+            libfreetype6-dev \
+            libx11-dev \
+            libx11-xcb-dev \
+            libxcb1-dev \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            libwayland-dev \
+            libegl1-mesa-dev \
+            libvulkan-dev \
+            libasound2-dev \
+            libglib2.0-dev \
+            libgtk-3-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.90"
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --release -p relay-ui --locked
+
+      - name: Package artifacts
+        run: |
+          mkdir -p dist
+          cp target/release/relay dist/relay-linux-x86_64
+          chmod +x dist/relay-linux-x86_64
+          cp LICENSE README.md dist/
+          tar -C dist -czf relay-linux-x86_64.tar.gz relay-linux-x86_64 LICENSE README.md
+          sha256sum relay-linux-x86_64.tar.gz > relay-linux-x86_64.tar.gz.sha256
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: relay-linux-x86_64
+          path: |
+            relay-linux-x86_64.tar.gz
+            relay-linux-x86_64.tar.gz.sha256
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            relay-linux-x86_64.tar.gz
+            relay-linux-x86_64.tar.gz.sha256
