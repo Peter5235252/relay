@@ -19,16 +19,80 @@ pub fn apply_appearance(appearance: Appearance, window: &mut Window, cx: &mut Ap
 /// Apply user-selected colors to the active theme.
 pub fn apply_colors(settings: &AppSettings, cx: &mut App) {
     let parse = |hex: &str| -> Option<gpui_kit::Hsla> {
+        let hex = hex.trim();
+        if hex.is_empty() {
+            return None;
+        }
         let rgba = gpui_kit::Rgba::try_from(hex).ok()?;
         Some(rgba.into())
     };
     Theme::update(cx, |theme| {
+        let colors = &mut theme.colors;
         if let Some(c) = parse(&settings.primary_color) {
-            theme.primary = c;
-            theme.button_primary = c;
+            colors.primary = c;
+            colors.button_primary = c;
+            colors.sidebar_primary = c;
         }
         if let Some(c) = parse(&settings.accent_color) {
-            theme.accent = c;
+            colors.accent = c;
+            colors.ring = c;
+        }
+        if let Some(c) = parse(&settings.background_color) {
+            colors.background = c;
+        }
+        if let Some(c) = parse(&settings.foreground_color) {
+            colors.foreground = c;
+            colors.popover_foreground = c;
+            colors.sidebar_foreground = c;
+        }
+        if let Some(c) = parse(&settings.secondary_color) {
+            colors.secondary = c;
+            colors.button_secondary = c;
+            colors.list = c;
+            colors.popover = c;
+            colors.table = c;
+        }
+        if let Some(c) = parse(&settings.secondary_foreground_color) {
+            colors.secondary_foreground = c;
+            colors.button_secondary_foreground = c;
+            colors.list_head = c;
+            colors.table_head_foreground = c;
+        }
+        if let Some(c) = parse(&settings.muted_color) {
+            colors.muted = c;
+            colors.table_head = c;
+            colors.tab_bar = c;
+            colors.list_even = c;
+            colors.table_even = c;
+        }
+        if let Some(c) = parse(&settings.muted_foreground_color) {
+            colors.muted_foreground = c;
+            colors.tab_foreground = c;
+        }
+        if let Some(c) = parse(&settings.border_color) {
+            colors.border = c;
+            colors.sidebar_border = c;
+            colors.title_bar_border = c;
+            colors.list_active_border = c;
+            colors.table_row_border = c;
+        }
+        if let Some(c) = parse(&settings.input_color) {
+            colors.input = c;
+        }
+        if let Some(c) = parse(&settings.sidebar_color) {
+            colors.sidebar = c;
+            colors.title_bar = c;
+        }
+        if let Some(c) = parse(&settings.sidebar_foreground_color) {
+            colors.sidebar_foreground = c;
+        }
+        if let Some(c) = parse(&settings.sidebar_accent_color) {
+            colors.sidebar_accent = c;
+            colors.list_hover = c;
+            colors.list_active = c;
+            colors.tab_active = c;
+            colors.table_hover = c;
+            colors.table_active = c;
         }
     });
 }

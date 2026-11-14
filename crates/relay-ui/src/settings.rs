@@ -92,6 +92,22 @@ pub struct SettingsView {
     temperature: Entity<InputState>,
     max_output: Entity<InputState>,
     instructions: Entity<TextareaState>,
+    font_family: Entity<InputState>,
+    mono_font_family: Entity<InputState>,
+    font_size: Entity<InputState>,
+    primary_color: Entity<InputState>,
+    accent_color: Entity<InputState>,
+    background_color: Entity<InputState>,
+    foreground_color: Entity<InputState>,
+    secondary_color: Entity<InputState>,
+    secondary_foreground_color: Entity<InputState>,
+    muted_color: Entity<InputState>,
+    muted_foreground_color: Entity<InputState>,
+    border_color: Entity<InputState>,
+    input_color: Entity<InputState>,
+    sidebar_color: Entity<InputState>,
+    sidebar_foreground_color: Entity<InputState>,
+    sidebar_accent_color: Entity<InputState>,
     ollama_url: Entity<InputState>,
     ollama_model: Entity<InputState>,
     local_url: Entity<InputState>,
@@ -148,6 +164,72 @@ impl SettingsView {
             "Standing instructions for every conversation…",
             &settings.custom_instructions,
         );
+        let font_family = text_input(window, cx, "UI font family", &settings.font_family);
+        let mono_font_family = text_input(
+            window,
+            cx,
+            "Monospace font family",
+            &settings.mono_font_family,
+        );
+        let font_size = text_input(window, cx, "15", &format!("{:.1}", settings.font_size));
+        let primary_color = text_input(
+            window,
+            cx,
+            "#hex (empty = default)",
+            &settings.primary_color,
+        );
+        let accent_color = text_input(window, cx, "#hex (empty = default)", &settings.accent_color);
+        let background_color = text_input(
+            window,
+            cx,
+            "#hex (empty = default)",
+            &settings.background_color,
+        );
+        let foreground_color = text_input(
+            window,
+            cx,
+            "#hex (empty = default)",
+            &settings.foreground_color,
+        );
+        let secondary_color = text_input(
+            window,
+            cx,
+            "#hex (empty = default)",
+            &settings.secondary_color,
+        );
+        let secondary_foreground_color = text_input(
+            window,
+            cx,
+            "#hex (empty = default)",
+            &settings.secondary_foreground_color,
+        );
+        let muted_color = text_input(window, cx, "#hex (empty = default)", &settings.muted_color);
+        let muted_foreground_color = text_input(
+            window,
+            cx,
+            "#hex (empty = default)",
+            &settings.muted_foreground_color,
+        );
+        let border_color = text_input(window, cx, "#hex (empty = default)", &settings.border_color);
+        let input_color = text_input(window, cx, "#hex (empty = default)", &settings.input_color);
+        let sidebar_color = text_input(
+            window,
+            cx,
+            "#hex (empty = default)",
+            &settings.sidebar_color,
+        );
+        let sidebar_foreground_color = text_input(
+            window,
+            cx,
+            "#hex (empty = default)",
+            &settings.sidebar_foreground_color,
+        );
+        let sidebar_accent_color = text_input(
+            window,
+            cx,
+            "#hex (empty = default)",
+            &settings.sidebar_accent_color,
+        );
         let ollama_url = text_input(
             window,
             cx,
@@ -198,6 +280,22 @@ impl SettingsView {
             temperature,
             max_output,
             instructions,
+            font_family,
+            mono_font_family,
+            font_size,
+            primary_color,
+            accent_color,
+            background_color,
+            foreground_color,
+            secondary_color,
+            secondary_foreground_color,
+            muted_color,
+            muted_foreground_color,
+            border_color,
+            input_color,
+            sidebar_color,
+            sidebar_foreground_color,
+            sidebar_accent_color,
             ollama_url,
             ollama_model,
             local_url,
@@ -253,6 +351,31 @@ impl SettingsView {
             .parse::<u32>()
             .unwrap_or(0);
         self.settings.custom_instructions = self.instructions.read(cx).value().to_string();
+        self.settings.font_family = self.font_family.read(cx).value().to_string();
+        self.settings.mono_font_family = self.mono_font_family.read(cx).value().to_string();
+        self.settings.font_size = self
+            .font_size
+            .read(cx)
+            .value()
+            .trim()
+            .parse::<f32>()
+            .unwrap_or(self.settings.font_size);
+        self.settings.primary_color = self.primary_color.read(cx).value().to_string();
+        self.settings.accent_color = self.accent_color.read(cx).value().to_string();
+        self.settings.background_color = self.background_color.read(cx).value().to_string();
+        self.settings.foreground_color = self.foreground_color.read(cx).value().to_string();
+        self.settings.secondary_color = self.secondary_color.read(cx).value().to_string();
+        self.settings.secondary_foreground_color =
+            self.secondary_foreground_color.read(cx).value().to_string();
+        self.settings.muted_color = self.muted_color.read(cx).value().to_string();
+        self.settings.muted_foreground_color =
+            self.muted_foreground_color.read(cx).value().to_string();
+        self.settings.border_color = self.border_color.read(cx).value().to_string();
+        self.settings.input_color = self.input_color.read(cx).value().to_string();
+        self.settings.sidebar_color = self.sidebar_color.read(cx).value().to_string();
+        self.settings.sidebar_foreground_color =
+            self.sidebar_foreground_color.read(cx).value().to_string();
+        self.settings.sidebar_accent_color = self.sidebar_accent_color.read(cx).value().to_string();
         self.settings.ollama_base_url = self.ollama_url.read(cx).value().to_string();
         self.settings.ollama_model = self.ollama_model.read(cx).value().to_string();
         self.settings.local_base_url = self.local_url.read(cx).value().to_string();
@@ -496,6 +619,58 @@ impl SettingsView {
             .unwrap_or_else(|_| relay_core::builtin_presets());
     }
 
+    fn reset_appearance(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let defaults = AppSettings::default();
+        self.settings.font_family = defaults.font_family.clone();
+        self.settings.mono_font_family = defaults.mono_font_family.clone();
+        self.settings.font_size = defaults.font_size;
+        self.settings.primary_color = defaults.primary_color.clone();
+        self.settings.accent_color = defaults.accent_color.clone();
+        self.settings.background_color = defaults.background_color.clone();
+        self.settings.foreground_color = defaults.foreground_color.clone();
+        self.settings.secondary_color = defaults.secondary_color.clone();
+        self.settings.secondary_foreground_color = defaults.secondary_foreground_color.clone();
+        self.settings.muted_color = defaults.muted_color.clone();
+        self.settings.muted_foreground_color = defaults.muted_foreground_color.clone();
+        self.settings.border_color = defaults.border_color.clone();
+        self.settings.input_color = defaults.input_color.clone();
+        self.settings.sidebar_color = defaults.sidebar_color.clone();
+        self.settings.sidebar_foreground_color = defaults.sidebar_foreground_color.clone();
+        self.settings.sidebar_accent_color = defaults.sidebar_accent_color.clone();
+
+        let sets = [
+            (&self.font_family, defaults.font_family),
+            (&self.mono_font_family, defaults.mono_font_family),
+            (&self.font_size, format!("{:.1}", defaults.font_size)),
+            (&self.primary_color, defaults.primary_color),
+            (&self.accent_color, defaults.accent_color),
+            (&self.background_color, defaults.background_color),
+            (&self.foreground_color, defaults.foreground_color),
+            (&self.secondary_color, defaults.secondary_color),
+            (
+                &self.secondary_foreground_color,
+                defaults.secondary_foreground_color,
+            ),
+            (&self.muted_color, defaults.muted_color),
+            (
+                &self.muted_foreground_color,
+                defaults.muted_foreground_color,
+            ),
+            (&self.border_color, defaults.border_color),
+            (&self.input_color, defaults.input_color),
+            (&self.sidebar_color, defaults.sidebar_color),
+            (
+                &self.sidebar_foreground_color,
+                defaults.sidebar_foreground_color,
+            ),
+            (&self.sidebar_accent_color, defaults.sidebar_accent_color),
+        ];
+        for (input, value) in sets {
+            input.update(cx, |s, cx| s.set_value(value, window, cx));
+        }
+        cx.notify();
+    }
+
     // MARK: Data
 
     fn confirm_delete_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -577,6 +752,22 @@ impl SettingsView {
         let temperature = self.temperature.clone();
         let max_output = self.max_output.clone();
         let instructions = self.instructions.clone();
+        let font_family = self.font_family.clone();
+        let mono_font_family = self.mono_font_family.clone();
+        let font_size = self.font_size.clone();
+        let primary_color = self.primary_color.clone();
+        let accent_color = self.accent_color.clone();
+        let background_color = self.background_color.clone();
+        let foreground_color = self.foreground_color.clone();
+        let secondary_color = self.secondary_color.clone();
+        let secondary_foreground_color = self.secondary_foreground_color.clone();
+        let muted_color = self.muted_color.clone();
+        let muted_foreground_color = self.muted_foreground_color.clone();
+        let border_color = self.border_color.clone();
+        let input_color = self.input_color.clone();
+        let sidebar_color = self.sidebar_color.clone();
+        let sidebar_foreground_color = self.sidebar_foreground_color.clone();
+        let sidebar_accent_color = self.sidebar_accent_color.clone();
 
         v_flex()
             .gap_6()
@@ -622,6 +813,53 @@ impl SettingsView {
                                 cx.notify();
                             })),
                     )),
+            )
+            .child(section(
+                "Typography & colors",
+                "Customize fonts and interface colors. Leave a color empty to use the theme default for your appearance mode.",
+                &theme,
+            ))
+            .child(
+                card(&theme)
+                    .child(field(
+                        "UI font family",
+                        "Font used across the app interface.",
+                        Input::new(&font_family).w(px(280.)),
+                    ))
+                    .child(field(
+                        "Monospace font family",
+                        "Font used for code and tool output.",
+                        Input::new(&mono_font_family).w(px(280.)),
+                    ))
+                    .child(field(
+                        "Font size (px)",
+                        "Base UI font size.",
+                        Input::new(&font_size).w(px(120.)),
+                    ))
+                    .child(field("Primary color", "Buttons/accents (hex).", Input::new(&primary_color).w(px(180.))))
+                    .child(field("Accent color", "Accent/ring (hex).", Input::new(&accent_color).w(px(180.))))
+                    .child(field("Background", "Main app background (hex).", Input::new(&background_color).w(px(180.))))
+                    .child(field("Foreground", "Main text color (hex).", Input::new(&foreground_color).w(px(180.))))
+                    .child(field("Surface / secondary", "Cards, bubbles, inputs (hex).", Input::new(&secondary_color).w(px(180.))))
+                    .child(field("Secondary text", "Text on secondary surfaces (hex).", Input::new(&secondary_foreground_color).w(px(180.))))
+                    .child(field("Muted", "Muted surfaces (hex).", Input::new(&muted_color).w(px(180.))))
+                    .child(field("Muted text", "Secondary/muted text (hex).", Input::new(&muted_foreground_color).w(px(180.))))
+                    .child(field("Border", "Borders and dividers (hex).", Input::new(&border_color).w(px(180.))))
+                    .child(field("Input border", "Input field borders (hex).", Input::new(&input_color).w(px(180.))))
+                    .child(field("Sidebar background", "Sidebar/titlebar background (hex).", Input::new(&sidebar_color).w(px(180.))))
+                    .child(field("Sidebar text", "Sidebar text color (hex).", Input::new(&sidebar_foreground_color).w(px(180.))))
+                    .child(field("Sidebar accent", "Sidebar hover/active highlight (hex).", Input::new(&sidebar_accent_color).w(px(180.))))
+                    .child(
+                        h_flex().gap_2().child(
+                            Button::new("reset-appearance")
+                                .outline()
+                                .small()
+                                .label("Reset fonts & colors")
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.reset_appearance(window, cx);
+                                })),
+                        ),
+                    ),
             )
             .child(section(
                 "Sampling",

@@ -146,10 +146,32 @@ pub struct AppSettings {
     pub mono_font_family: String,
     /// Base UI font size in pixels.
     pub font_size: f32,
-    /// Primary accent color (hex).
+    /// Primary accent color (hex). Empty = theme default.
     pub primary_color: String,
-    /// Secondary accent color (hex).
+    /// Accent color (hex). Empty = theme default.
     pub accent_color: String,
+    /// Main background color (hex). Empty = theme default.
+    pub background_color: String,
+    /// Main foreground/text color (hex). Empty = theme default.
+    pub foreground_color: String,
+    /// Secondary/surface background (hex). Empty = theme default.
+    pub secondary_color: String,
+    /// Secondary foreground (hex). Empty = theme default.
+    pub secondary_foreground_color: String,
+    /// Muted background (hex). Empty = theme default.
+    pub muted_color: String,
+    /// Muted foreground (hex). Empty = theme default.
+    pub muted_foreground_color: String,
+    /// Border color (hex). Empty = theme default.
+    pub border_color: String,
+    /// Input/surface border color (hex). Empty = theme default.
+    pub input_color: String,
+    /// Sidebar background (hex). Empty = theme default.
+    pub sidebar_color: String,
+    /// Sidebar foreground (hex). Empty = theme default.
+    pub sidebar_foreground_color: String,
+    /// Sidebar accent/hover color (hex). Empty = theme default.
+    pub sidebar_accent_color: String,
     /// User-authored instructions appended to the active personality preset.
     pub custom_instructions: String,
     /// Active built-in or user preset id.
@@ -186,8 +208,19 @@ impl Default for AppSettings {
             font_family: "Fira Sans".to_owned(),
             mono_font_family: "DejaVu Sans Mono".to_owned(),
             font_size: 15.0,
-            primary_color: "#18181b".to_owned(),
-            accent_color: "#3b82f6".to_owned(),
+            primary_color: String::new(),
+            accent_color: String::new(),
+            background_color: String::new(),
+            foreground_color: String::new(),
+            secondary_color: String::new(),
+            secondary_foreground_color: String::new(),
+            muted_color: String::new(),
+            muted_foreground_color: String::new(),
+            border_color: String::new(),
+            input_color: String::new(),
+            sidebar_color: String::new(),
+            sidebar_foreground_color: String::new(),
+            sidebar_accent_color: String::new(),
             custom_instructions: String::new(),
             active_preset_id: "balanced".to_owned(),
             show_thinking: true,
@@ -223,12 +256,19 @@ impl AppSettings {
         if self.mono_font_family.trim().is_empty() {
             self.mono_font_family = "DejaVu Sans Mono".to_owned();
         }
-        if self.primary_color.trim().is_empty() {
-            self.primary_color = "#18181b".to_owned();
-        }
-        if self.accent_color.trim().is_empty() {
-            self.accent_color = "#3b82f6".to_owned();
-        }
+        self.primary_color = self.primary_color.trim().to_owned();
+        self.accent_color = self.accent_color.trim().to_owned();
+        self.background_color = self.background_color.trim().to_owned();
+        self.foreground_color = self.foreground_color.trim().to_owned();
+        self.secondary_color = self.secondary_color.trim().to_owned();
+        self.secondary_foreground_color = self.secondary_foreground_color.trim().to_owned();
+        self.muted_color = self.muted_color.trim().to_owned();
+        self.muted_foreground_color = self.muted_foreground_color.trim().to_owned();
+        self.border_color = self.border_color.trim().to_owned();
+        self.input_color = self.input_color.trim().to_owned();
+        self.sidebar_color = self.sidebar_color.trim().to_owned();
+        self.sidebar_foreground_color = self.sidebar_foreground_color.trim().to_owned();
+        self.sidebar_accent_color = self.sidebar_accent_color.trim().to_owned();
         self.ollama_base_url = normalize_url(&self.ollama_base_url);
         self.local_base_url = normalize_url(&self.local_base_url);
         self.ollama_model = self.ollama_model.trim().to_owned();

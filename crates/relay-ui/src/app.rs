@@ -633,6 +633,7 @@ impl RelayApp {
             composer.set_submit_on_enter(self.settings.send_on_enter, cx);
         });
         theme::apply_colors(&self.settings, cx);
+        theme::install_typography(cx, &self.settings);
         theme::apply_appearance(self.settings.appearance, window, cx);
         self.rebuild_model_select(window, cx);
         self.rebuild_reasoning_select(window, cx);
