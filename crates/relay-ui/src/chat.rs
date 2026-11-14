@@ -797,67 +797,90 @@ impl RelayApp {
                         let term_input = self.chat.terminal_input.clone();
                         let term_scroll = self.chat.terminal_scroll.clone();
                         this.child(
-                            h_flex().justify_end().child(
-                                v_flex()
-                                    .w(px(560.))
-                                    .h(px(240.))
-                                    .rounded(theme.radius_lg)
-                                    .border_1()
-                                    .border_color(theme.border)
-                                    .bg(theme.background)
-                                    .overflow_hidden()
-                                    .child(
-                                        h_flex()
-                                            .justify_between()
-                                            .items_center()
-                                            .px_3()
-                                            .py_1()
-                                            .border_b_1()
-                                            .border_color(theme.border)
-                                            .child(
-                                                h_flex()
-                                                    .gap_2()
-                                                    .items_center()
-                                                    .child(Icon::new(IconName::Terminal).small().text_color(theme.muted_foreground))
-                                                    .child(div().text_xs().font_medium().child("Terminal")),
-                                            )
-                                            .child(
-                                                Button::new("close-terminal")
-                                                    .ghost()
-                                                    .xsmall()
-                                                    .icon(Icon::new(IconName::X))
-                                                    .on_click(cx.listener(|this, _, _window, cx| {
-                                                        this.close_terminal(cx);
-                                                    })),
-                                            ),
-                                    )
-                                    .child(
-                                        div()
-                                            .id("terminal-output")
-                                            .flex_1()
-                                            .min_h_0()
-                                            .overflow_y_scroll()
-                                            .track_scroll(&term_scroll)
-                                            .p_2()
-                                            .child(
-                                                div()
-                                                    .text_xs()
-                                                    .font_family(theme.mono_font_family.clone())
-                                                    .child(SharedString::from(if output.is_empty() {
-                                                        "Shell ready. Type a command below.".to_owned()
-                                                    } else {
-                                                        output
-                                                    })),
-                                            ),
-                                    )
-                                    .child(
-                                        div()
-                                            .border_t_1()
-                                            .border_color(theme.border)
-                                            .p_2()
-                                            .child(Input::new(&term_input).w_full().small()),
-                                    ),
-                            ),
+                            div().w_full().child(
+                                h_flex().justify_end().child(
+                                    v_flex()
+                                        .id("terminal-panel")
+                                        .w(px(480.))
+                                        .h(px(220.))
+                                        .rounded(theme.radius_lg)
+                                        .border_1()
+                                        .border_color(theme.border)
+                                        .bg(theme.secondary)
+                                        .shadow_sm()
+                                        .overflow_hidden()
+                                        .child(
+                                            h_flex()
+                                                .justify_between()
+                                                .items_center()
+                                                .px_3()
+                                                .py_1p5()
+                                                .border_b_1()
+                                                .border_color(theme.border)
+                                                .child(
+                                                    h_flex()
+                                                        .gap_2()
+                                                        .items_center()
+                                                        .child(Icon::new(IconName::Terminal).xsmall().text_color(theme.muted_foreground))
+                                                        .child(div().text_xs().font_medium().child("Bash")),
+                                                )
+                                                .child(
+                                                    h_flex()
+                                                        .gap_1()
+                                                        .items_center()
+                                                        .child(
+                                                            Button::new("clear-terminal")
+                                                                .ghost()
+                                                                .xsmall()
+                                                                .icon(Icon::new(IconName::Trash))
+                                                                .tooltip("Clear output")
+                                                                .on_click(cx.listener(|this, _, _window, cx| {
+                                                                    this.clear_terminal(cx);
+                                                                })),
+                                                        )
+                                                        .child(
+                                                            Button::new("close-terminal")
+                                                                .ghost()
+                                                                .xsmall()
+                                                                .icon(Icon::new(IconName::X))
+                                                                .tooltip("Close terminal")
+                                                                .on_click(cx.listener(|this, _, _window, cx| {
+                                                                    this.close_terminal(cx);
+                                                                })),
+                                                        ),
+                                                ),
+                                        )
+                                        .child(
+                                            div()
+                                                .id("terminal-output")
+                                                .flex_1()
+                                                .min_h_0()
+                                                .overflow_y_scroll()
+                                                .track_scroll(&term_scroll)
+                                                .px_3()
+                                                .py_2()
+                                                .child(
+                                                    div()
+                                                        .text_xs()
+                                                        .font_family(theme.mono_font_family.clone())
+                                                        .text_color(theme.foreground)
+                                                        .child(SharedString::from(if output.trim().is_empty() {
+                                                            "bash — ready\n".to_owned()
+                                                        } else {
+                                                            output
+                                                        })),
+                                                ),
+                                        )
+                                        .child(
+                                            div()
+                                                .border_t_1()
+                                                .border_color(theme.border)
+                                                .px_2()
+                                                .py_1p5()
+                                                .child(Input::new(&term_input).w_full().small().appearance(false)),
+                                        ),
+                                ),
+                            )
                         )
                     })
                     .child(

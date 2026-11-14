@@ -578,6 +578,13 @@ impl RelayApp {
         cx.notify();
     }
 
+    pub(crate) fn clear_terminal(&mut self, cx: &mut Context<Self>) {
+        if let Some(t) = self.chat.terminal.as_mut() {
+            t.clear();
+        }
+        cx.notify();
+    }
+
     pub(crate) fn toggle_agent_mode(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.settings.agent_mode = match self.settings.agent_mode {
             relay_core::AgentMode::Plan => relay_core::AgentMode::Build,

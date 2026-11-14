@@ -13,7 +13,7 @@ pub enum ShellEvent {
     Exited,
 }
 
-/// Interactive shell session connected to the user's default shell.
+/// Interactive shell session connected to the user's shell.
 pub struct ShellSession {
     pub output: String,
     writer: Option<Box<dyn Write + Send>>,
@@ -21,6 +21,97 @@ pub struct ShellSession {
     master: Option<Box<dyn portable_pty::MasterPty + Send>>,
     pub events: Receiver<ShellEvent>,
     _events_tx: Sender<ShellEvent>,
+}
+
+fn default_shell() -> String {
+    if std::path::Path::new("/bin/bash").exists() {
+        "/bin/bash".to_owned()
+    } else {
+        std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_owned())
+    }
+}
+
+fn sanitize_output(input: &str) -> String {
+    // Minimal ANSI/control stripping for readable display.
+    let bytes = input.as_bytes();
+    let mut out = String::with_capacity(input.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\x1b' => {
+                i += 1;
+                if i >= bytes.len() {
+                    break;
+                }
+                match bytes[i] {
+                    b'[' => {
+                        // CSI: ESC [ ... <final byte @-~>
+                        i += 1;
+                        while i < bytes.len() {
+                            let b = bytes[i];
+                            i += 1;
+                            if (0x40..=0x7E).contains(&b) {
+                                break;
+                            }
+                        }
+                    }
+                    b']' => {
+                        // OSC: ESC ] ... BEL or ESC \
+                        i += 1;
+                        while i < bytes.len() {
+                            if bytes[i] == 0x07 {
+                                i += 1;
+                                break;
+                            }
+                            if bytes[i] == b'\x1b' && i + 1 < bytes.len() && bytes[i + 1] == b'\\' {
+                                i += 2;
+                                break;
+                            }
+                            i += 1;
+                        }
+                    }
+                    b'P' | b'^' | b'_' => {
+                        // DCS/PM/AP: ESC P/^/_ ... ESC \
+                        i += 1;
+                        while i < bytes.len() {
+                            if bytes[i] == b'\x1b' && i + 1 < bytes.len() && bytes[i + 1] == b'\\' {
+                                i += 2;
+                                break;
+                            }
+                            i += 1;
+                        }
+                    }
+                    _ => {
+                        // other escape sequence, skip introducer
+                        i += 1;
+                    }
+                }
+            }
+            b'\r' => {
+                // normalize CRLF/CR
+                if i + 1 < bytes.len() && bytes[i + 1] == b'\n' {
+                    out.push('\n');
+                    i += 2;
+                } else {
+                    i += 1; // drop lone CR (often used for overwrite)
+                }
+            }
+            b'\t' => {
+                out.push_str("    ");
+                i += 1;
+            }
+            b if b < 0x20 && b != b'\n' => {
+                // drop other control chars
+                i += 1;
+            }
+            _ => {
+                let ch = input[i..].chars().next().unwrap_or('\u{FFFD}');
+                out.push(ch);
+                i += ch.len_utf8();
+            }
+        }
+    }
+    out
 }
 
 impl ShellSession {
@@ -35,15 +126,20 @@ impl ShellSession {
             })
             .map_err(|e| e.to_string())?;
 
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_owned());
-        let mut cmd = CommandBuilder::new(shell);
+        let shell = default_shell();
+        let mut cmd = CommandBuilder::new(&shell);
+        if shell.ends_with("bash") {
+            cmd.arg("-i");
+        }
         cmd.env("TERM", "xterm-256color");
-        if let Ok(cwd) = std::env::current_dir() {
+        cmd.env("COLORTERM", "truecolor");
+        if let Ok(home) = std::env::var("HOME") {
+            cmd.cwd(home);
+        } else if let Ok(cwd) = std::env::current_dir() {
             cmd.cwd(cwd);
         }
 
         let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
-        // Drop slave in parent after spawn so EOF is delivered on child exit.
         drop(pair.slave);
 
         let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
@@ -58,7 +154,10 @@ impl ShellSession {
                     Ok(0) => break,
                     Ok(n) => {
                         let chunk = String::from_utf8_lossy(&buf[..n]).to_string();
-                        if tx_reader.send_blocking(ShellEvent::Output(chunk)).is_err() {
+                        let clean = sanitize_output(&chunk);
+                        if !clean.is_empty()
+                            && tx_reader.send_blocking(ShellEvent::Output(clean)).is_err()
+                        {
                             break;
                         }
                     }
@@ -92,15 +191,22 @@ impl ShellSession {
         self.output.push_str(chunk);
         if self.output.len() > MAX_OUTPUT_BYTES {
             let excess = self.output.len() - MAX_OUTPUT_BYTES;
-            // trim at char boundary
             let mut trim_at = excess;
             while trim_at < self.output.len() && !self.output.is_char_boundary(trim_at) {
                 trim_at += 1;
+            }
+            if let Some(rel) = self.output[trim_at..].find('\n') {
+                trim_at += rel + 1;
             }
             self.output.drain(..trim_at.min(self.output.len()));
         }
     }
 
+    pub fn clear(&mut self) {
+        self.output.clear();
+    }
+
+    #[allow(dead_code)]
     pub fn resize(&mut self, rows: u16, cols: u16) {
         if let Some(m) = self.master.as_mut() {
             let _ = m.resize(PtySize {
