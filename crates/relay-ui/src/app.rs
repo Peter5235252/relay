@@ -968,6 +968,7 @@ impl RelayApp {
             request,
             self.settings.agent_mode,
             self.settings.tool_approval,
+            streaming::DelegateContext::from_settings(&self.settings),
         ) {
             Ok(started) => started,
             Err(error) => {

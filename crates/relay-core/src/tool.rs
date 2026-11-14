@@ -56,10 +56,24 @@ impl ToolApproval {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "name", rename_all = "snake_case")]
 pub enum Tool {
-    ReadFile { path: String },
-    ListDir { path: String },
-    RunCommand { command: String },
-    WriteFile { path: String, content: String },
+    ReadFile {
+        path: String,
+    },
+    ListDir {
+        path: String,
+    },
+    RunCommand {
+        command: String,
+    },
+    WriteFile {
+        path: String,
+        content: String,
+    },
+    /// Delegate a subtask to another configured model/provider (including local).
+    Delegate {
+        model: String,
+        prompt: String,
+    },
 }
 
 impl Tool {
@@ -69,13 +83,21 @@ impl Tool {
             Tool::ListDir { .. } => "list_dir",
             Tool::RunCommand { .. } => "run_command",
             Tool::WriteFile { .. } => "write_file",
+            Tool::Delegate { .. } => "delegate",
         }
     }
     /// Tools available in the given mode.
     pub fn available(mode: AgentMode) -> Vec<&'static str> {
         match mode {
-            AgentMode::Plan => vec!["read_file", "list_dir"],
-            AgentMode::Build => vec!["read_file", "list_dir", "run_command", "write_file"],
+            // Plan is read-only for local filesystem/commands, but delegation is allowed.
+            AgentMode::Plan => vec!["read_file", "list_dir", "delegate"],
+            AgentMode::Build => vec![
+                "read_file",
+                "list_dir",
+                "run_command",
+                "write_file",
+                "delegate",
+            ],
         }
     }
 }
@@ -163,7 +185,7 @@ pub fn should_auto_approve(
     args: &serde_json::Value,
 ) -> bool {
     match mode {
-        AgentMode::Plan => matches!(name, "read_file" | "list_dir"),
+        AgentMode::Plan => matches!(name, "read_file" | "list_dir" | "delegate"),
         AgentMode::Build => match policy {
             ToolApproval::All => true,
             ToolApproval::None => false,
@@ -246,5 +268,17 @@ pub fn tool_specs(mode: AgentMode) -> Vec<ToolSpec> {
             }),
         });
     }
+    specs.push(ToolSpec {
+        name: "delegate".into(),
+        description: "Delegate a subtask to another configured model/provider and return its response. Use a model slug (e.g. 'gemini-2.5-pro', 'claude-sonnet-4', 'gpt-4o', 'ollama/<model>', 'local/<model>') or 'ollama'/'local' to use the configured default local model. Works with cloud and local models that are configured/available.".into(),
+        parameters: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "model": {"type":"string","description":"Target model slug/name/provider alias"},
+                "prompt": {"type":"string","description":"Subtask instructions/prompt for the delegated model"}
+            },
+            "required": ["model","prompt"]
+        }),
+    });
     specs
 }

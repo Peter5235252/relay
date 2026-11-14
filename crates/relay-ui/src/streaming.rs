@@ -5,7 +5,10 @@
 //! events back over a `smol` channel. That channel is executor-agnostic and is
 //! what the GPUI task awaits.
 
-use relay_core::{AgentMode, RequestMessage, Role, ToolApproval, ToolCall, should_auto_approve};
+use relay_core::{
+    AgentMode, ModelSelection, Provider, RequestMessage, Role, ToolApproval, ToolCall, find_model,
+    should_auto_approve,
+};
 use relay_providers::{ChatRequest, ProviderClient, StreamEvent};
 use smol::channel::{Receiver, unbounded};
 use std::process::Command;
@@ -27,10 +30,30 @@ pub struct StartedStream {
     pub cancel: CancellationToken,
 }
 
-fn run_tool(call: &ToolCall, mode: AgentMode) -> String {
-    // Strict Plan mode: read-only only.
+/// Context needed to execute delegation/subagent tool calls.
+#[derive(Clone, Debug)]
+pub struct DelegateContext {
+    pub ollama_base_url: String,
+    pub ollama_model: String,
+    pub local_base_url: String,
+    pub local_model: String,
+}
+
+impl DelegateContext {
+    pub fn from_settings(settings: &relay_core::AppSettings) -> Self {
+        Self {
+            ollama_base_url: settings.ollama_base_url.clone(),
+            ollama_model: settings.ollama_model.clone(),
+            local_base_url: settings.local_base_url.clone(),
+            local_model: settings.local_model.clone(),
+        }
+    }
+}
+
+fn run_local_tool(call: &ToolCall, mode: AgentMode) -> String {
+    // Strict Plan mode: read-only for local fs/commands.
     if mode == AgentMode::Plan && !matches!(call.name.as_str(), "read_file" | "list_dir") {
-        return "error: tool not allowed in Plan mode (read-only)".to_owned();
+        return "error: tool not allowed in Plan mode".to_owned();
     }
     match call.name.as_str() {
         "read_file" => {
@@ -113,11 +136,179 @@ fn run_tool(call: &ToolCall, mode: AgentMode) -> String {
     }
 }
 
+fn resolve_delegate_model(target: &str, ctx: &DelegateContext) -> Result<ModelSelection, String> {
+    let t = target.trim();
+    if t.is_empty() {
+        return Err("error: missing delegate model".to_owned());
+    }
+    // direct cloud slug
+    if let Some(spec) = find_model(t) {
+        return Ok(ModelSelection::from_spec(spec));
+    }
+    // direct local slugs
+    if let Some(sel) = ModelSelection::local_from_slug(t) {
+        return Ok(sel);
+    }
+    // aliases
+    let lower = t.to_ascii_lowercase();
+    if lower == "ollama" {
+        let m = ctx.ollama_model.trim();
+        if m.is_empty() {
+            return Err(
+                "error: no default Ollama model configured (set it in Settings → Models & Keys)"
+                    .to_owned(),
+            );
+        }
+        return Ok(ModelSelection::ollama(m));
+    }
+    if lower == "local" || lower == "openai-compatible" || lower == "openai_compatible" {
+        let m = ctx.local_model.trim();
+        if m.is_empty() {
+            return Err("error: no default local/OpenAI-compatible model configured (set it in Settings → Models & Keys)".to_owned());
+        }
+        return Ok(ModelSelection::openai_compatible(m));
+    }
+    // provider/name heuristics
+    if lower.starts_with("ollama:") || lower.starts_with("ollama ") {
+        let m = t
+            .splitn(2, |c: char| c == ':' || c.is_whitespace())
+            .nth(1)
+            .unwrap_or("")
+            .trim();
+        if m.is_empty() {
+            return Err("error: missing Ollama model name".to_owned());
+        }
+        return Ok(ModelSelection::ollama(m));
+    }
+    if lower.starts_with("local:") || lower.starts_with("local ") {
+        let m = t
+            .splitn(2, |c: char| c == ':' || c.is_whitespace())
+            .nth(1)
+            .unwrap_or("")
+            .trim();
+        if m.is_empty() {
+            return Err("error: missing local model name".to_owned());
+        }
+        return Ok(ModelSelection::openai_compatible(m));
+    }
+    // try fuzzy by display name or api id among cloud models
+    for spec in relay_core::models() {
+        if spec.name.eq_ignore_ascii_case(t) || spec.api_id.eq_ignore_ascii_case(t) {
+            return Ok(ModelSelection::from_spec(spec));
+        }
+    }
+    // fallback: treat as local openai-compatible model id
+    Ok(ModelSelection::openai_compatible(t))
+}
+
+async fn run_delegate(
+    client: &ProviderClient,
+    call: &ToolCall,
+    ctx: &DelegateContext,
+    cancel: &CancellationToken,
+) -> String {
+    let model_name = call
+        .arguments
+        .get("model")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_owned();
+    let prompt = call
+        .arguments
+        .get("prompt")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_owned();
+    if prompt.is_empty() {
+        return "error: missing delegate prompt".to_owned();
+    }
+    let model = match resolve_delegate_model(&model_name, ctx) {
+        Ok(m) => m,
+        Err(e) => return e,
+    };
+    if model.provider.requires_api_key() && crate::keys::resolve(model.provider).is_none() {
+        return format!(
+            "error: no API key configured for {} (required for model '{}')",
+            model.provider.label(),
+            model.api_id
+        );
+    }
+
+    let mut req = ChatRequest::new(model.clone(), vec![RequestMessage {
+        role: Role::User,
+        text: prompt,
+        tool_calls: Vec::new(),
+        tool_call_id: None,
+    }])
+    .with_reasoning(model.default_effort)
+    .with_system_prompt(Some(
+        "You are a delegated subagent. Complete the requested subtask accurately and concisely. Return your result directly."
+            .to_owned(),
+    ));
+    if model.provider.is_local() {
+        let endpoint = match model.provider {
+            Provider::Ollama => ctx.ollama_base_url.clone(),
+            _ => ctx.local_base_url.clone(),
+        };
+        req = req.with_endpoint(endpoint);
+    }
+    if let Some(key) = crate::keys::resolve(model.provider) {
+        req = req.with_api_key(key);
+    }
+
+    let (tx, rx) = unbounded::<StreamEvent>();
+    let client2 = client.clone();
+    let tok = cancel.clone();
+    let jh = tokio::spawn(async move { client2.stream(&req, &tx, &tok).await });
+    let mut out = String::new();
+    while let Ok(ev) = rx.recv().await {
+        if let StreamEvent::Text(t) = ev {
+            out.push_str(&t);
+        }
+    }
+    match jh
+        .await
+        .unwrap_or(Err(relay_providers::ProviderError::Cancelled))
+    {
+        Ok(_) => {
+            let trimmed = out.trim().to_owned();
+            if trimmed.is_empty() {
+                "(delegated model returned an empty response)".to_owned()
+            } else {
+                format!(
+                    "Delegated to {} ({}):\n\n{}",
+                    model.name, model.slug, trimmed
+                )
+            }
+        }
+        Err(e) => format!("error: delegation to {} failed: {e}", model.slug),
+    }
+}
+
+async fn run_tool(
+    client: &ProviderClient,
+    call: &ToolCall,
+    mode: AgentMode,
+    delegate_ctx: &DelegateContext,
+    cancel: &CancellationToken,
+) -> String {
+    if call.name == "delegate" {
+        if mode == AgentMode::Plan {
+            // allowed in plan per tool spec; treat as read-only external query
+        }
+        return run_delegate(client, call, delegate_ctx, cancel).await;
+    }
+    run_local_tool(call, mode)
+}
+
 pub fn start(
     handle: &Handle,
     request: ChatRequest,
     mode: AgentMode,
     approval: ToolApproval,
+    delegate_ctx: DelegateContext,
 ) -> Result<StartedStream, String> {
     let client = ProviderClient::new().map_err(|e| e.to_string())?;
     let (events_tx, events_rx) = unbounded::<StreamEvent>();
@@ -170,7 +361,8 @@ pub fn start(
             }
             // Enforce mode: drop disallowed tools in Plan.
             if mode == AgentMode::Plan {
-                tool_calls.retain(|c| matches!(c.name.as_str(), "read_file" | "list_dir"));
+                tool_calls
+                    .retain(|c| matches!(c.name.as_str(), "read_file" | "list_dir" | "delegate"));
             }
             for c in &tool_calls {
                 let _ = events_tx.send(StreamEvent::ToolCall(c.clone())).await;
@@ -208,7 +400,7 @@ pub fn start(
                     allowed = rx.await.unwrap_or(false);
                 }
                 let output = if allowed {
-                    run_tool(call, mode)
+                    run_tool(&client, call, mode, &delegate_ctx, &token).await
                 } else {
                     "error: denied by user".to_owned()
                 };
