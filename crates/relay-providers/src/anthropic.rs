@@ -284,15 +284,17 @@ pub(crate) async fn stream(
                     if let (Some(id), Some(name)) = (tool_id.take(), tool_name.take()) {
                         let args =
                             serde_json::from_str(&tool_args).unwrap_or(serde_json::json!({}));
-                        emit(
-                            events,
-                            StreamEvent::ToolCall(relay_core::ToolCall {
-                                id,
-                                name,
-                                arguments: args,
-                            }),
-                        )
-                        .await?;
+                        if !name.trim().is_empty() {
+                            emit(
+                                events,
+                                StreamEvent::ToolCall(relay_core::ToolCall {
+                                    id,
+                                    name,
+                                    arguments: args,
+                                }),
+                            )
+                            .await?;
+                        }
                         tool_args.clear();
                     }
                 }

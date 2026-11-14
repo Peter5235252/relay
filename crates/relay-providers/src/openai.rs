@@ -208,15 +208,17 @@ pub(crate) async fn stream(
                     if let (Some(id), Some(name)) =
                         (current_call_id.take(), current_call_name.take())
                     {
-                        emit(
-                            events,
-                            StreamEvent::ToolCall(relay_core::ToolCall {
-                                id,
-                                name,
-                                arguments: args,
-                            }),
-                        )
-                        .await?;
+                        if !name.trim().is_empty() {
+                            emit(
+                                events,
+                                StreamEvent::ToolCall(relay_core::ToolCall {
+                                    id,
+                                    name,
+                                    arguments: args,
+                                }),
+                            )
+                            .await?;
+                        }
                     }
                     current_args.clear();
                 }

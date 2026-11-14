@@ -189,6 +189,9 @@ async fn apply_line(
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_owned();
+                if name.trim().is_empty() {
+                    continue;
+                }
                 let args = tc
                     .pointer("/function/arguments")
                     .cloned()

@@ -26,7 +26,11 @@ fn run_tool(call: &ToolCall, build: bool) -> String {
                 .arguments
                 .get("path")
                 .and_then(|v| v.as_str())
-                .unwrap_or("");
+                .unwrap_or("")
+                .trim();
+            if path.is_empty() {
+                return "error: missing path".to_owned();
+            }
             std::fs::read_to_string(path).unwrap_or_else(|e| format!("error: {e}"))
         }
         "list_dir" => {
@@ -34,7 +38,9 @@ fn run_tool(call: &ToolCall, build: bool) -> String {
                 .arguments
                 .get("path")
                 .and_then(|v| v.as_str())
-                .unwrap_or(".");
+                .unwrap_or(".")
+                .trim();
+            let path = if path.is_empty() { "." } else { path };
             match std::fs::read_dir(path) {
                 Ok(rd) => rd
                     .filter_map(|e| e.ok())
@@ -49,7 +55,11 @@ fn run_tool(call: &ToolCall, build: bool) -> String {
                 .arguments
                 .get("command")
                 .and_then(|v| v.as_str())
-                .unwrap_or("");
+                .unwrap_or("")
+                .trim();
+            if cmd.is_empty() {
+                return "error: missing command".to_owned();
+            }
             let out = Command::new("sh").arg("-c").arg(cmd).output();
             match out {
                 Ok(o) => format!(
@@ -104,15 +114,39 @@ pub fn start(handle: &Handle, request: ChatRequest) -> Result<StartedStream, Str
             let jh = tokio::spawn(async move { client2.stream(&req, &prov_tx, &tok).await });
 
             let mut tool_calls: Vec<ToolCall> = Vec::new();
+            let mut pending_tool_events: Vec<ToolCall> = Vec::new();
             let mut assistant_text = String::new();
             while let Ok(ev) = prov_rx.recv().await {
-                if let StreamEvent::ToolCall(c) = &ev {
-                    tool_calls.push(c.clone());
+                match &ev {
+                    StreamEvent::ToolCall(c) => {
+                        pending_tool_events.push(c.clone());
+                    }
+                    StreamEvent::Text(t) => {
+                        assistant_text.push_str(t);
+                        let _ = events_tx.send(ev).await;
+                    }
+                    _ => {
+                        let _ = events_tx.send(ev).await;
+                    }
                 }
-                if let StreamEvent::Text(t) = &ev {
-                    assistant_text.push_str(t);
+            }
+            // Filter and dedupe tool calls.
+            let mut seen = std::collections::HashSet::new();
+            for c in pending_tool_events {
+                if c.name.trim().is_empty() {
+                    continue;
                 }
-                let _ = events_tx.send(ev).await;
+                let key = if c.id.is_empty() {
+                    format!("{}:{:?}", c.name, c.arguments)
+                } else {
+                    c.id.clone()
+                };
+                if seen.insert(key) {
+                    tool_calls.push(c);
+                }
+            }
+            for c in &tool_calls {
+                let _ = events_tx.send(StreamEvent::ToolCall(c.clone())).await;
             }
             let stream_result = jh
                 .await

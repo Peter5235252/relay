@@ -120,6 +120,9 @@ pub(crate) async fn stream(
     let mut usage = Usage::default();
     let mut stop_reason = None;
     let mut finished = false;
+    // index -> (id, name, args_buffer)
+    let mut tool_states: std::collections::BTreeMap<usize, (String, String, String)> =
+        std::collections::BTreeMap::new();
 
     while let Some(chunk) = next_chunk(&mut stream, Provider::OpenAiCompatible, cancel).await? {
         for event in decoder.push(&chunk) {
@@ -159,32 +162,27 @@ pub(crate) async fn stream(
                         emit(events, StreamEvent::Text(content.to_owned())).await?;
                     }
                     if let Some(tcs) = delta.get("tool_calls").and_then(Value::as_array) {
-                        for (i, tc) in tcs.iter().enumerate() {
-                            let id = tc
-                                .get("id")
-                                .and_then(Value::as_str)
-                                .map(str::to_owned)
-                                .unwrap_or_else(|| format!("call_{}", i));
-                            let name = tc
-                                .pointer("/function/name")
-                                .and_then(Value::as_str)
-                                .unwrap_or("")
-                                .to_owned();
-                            let args_str = tc
-                                .pointer("/function/arguments")
-                                .and_then(Value::as_str)
-                                .unwrap_or("");
-                            let args =
-                                serde_json::from_str(args_str).unwrap_or(Value::Object(Map::new()));
-                            emit(
-                                events,
-                                StreamEvent::ToolCall(relay_core::ToolCall {
-                                    id,
-                                    name,
-                                    arguments: args,
-                                }),
-                            )
-                            .await?;
+                        for tc in tcs {
+                            let idx = tc.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
+                            let entry = tool_states
+                                .entry(idx)
+                                .or_insert_with(|| (String::new(), String::new(), String::new()));
+                            if let Some(id) = tc.get("id").and_then(Value::as_str) {
+                                if !id.is_empty() {
+                                    entry.0 = id.to_owned();
+                                }
+                            }
+                            if let Some(name) = tc.pointer("/function/name").and_then(Value::as_str)
+                            {
+                                if !name.is_empty() {
+                                    entry.1.push_str(name);
+                                }
+                            }
+                            if let Some(args) =
+                                tc.pointer("/function/arguments").and_then(Value::as_str)
+                            {
+                                entry.2.push_str(args);
+                            }
                         }
                     }
                 }
@@ -196,6 +194,27 @@ pub(crate) async fn stream(
         if finished {
             break;
         }
+    }
+
+    for (idx, (id, name, args_str)) in tool_states {
+        if name.trim().is_empty() {
+            continue;
+        }
+        let id = if id.is_empty() {
+            format!("call_{idx}")
+        } else {
+            id
+        };
+        let args = serde_json::from_str(&args_str).unwrap_or(Value::Object(Map::new()));
+        emit(
+            events,
+            StreamEvent::ToolCall(relay_core::ToolCall {
+                id,
+                name,
+                arguments: args,
+            }),
+        )
+        .await?;
     }
 
     if !usage.is_empty() {
