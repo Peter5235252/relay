@@ -9,12 +9,12 @@ members = [
 default-members = ["crates/relay-ui"]
 
 [workspace.package]
-version = "0.1.6"
+version = "0.1.7"
 edition = "2024"
 rust-version = "1.90"
 license = "Apache-2.0"
 authors = ["Relay Contributors"]
-repository = "https://github.com/csemanpeter/relay"
+repository = "https://github.com/Peter5235252/relay"
 
 [workspace.dependencies]
 relay-core = { path = "crates/relay-core" }

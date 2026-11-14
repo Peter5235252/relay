@@ -57,4 +57,4 @@ pub use usage::{CostEstimate, LongContextPricing, Pricing, TokenRates, Usage, fo
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// The public project URL shown in the app.
-pub const PROJECT_URL: &str = "https://github.com/csemanpeter/relay";
+pub const PROJECT_URL: &str = "https://github.com/Peter5235252/relay";
