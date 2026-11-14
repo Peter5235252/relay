@@ -86,7 +86,7 @@ fn main() -> ExitCode {
     };
 
     let settings = store.load_settings().unwrap_or_default();
-    let appearance = settings.appearance;
+    let _appearance = settings.appearance;
 
     let bundled = std::sync::Arc::new(std::sync::Mutex::new(bundled::BundledState::default()));
     {

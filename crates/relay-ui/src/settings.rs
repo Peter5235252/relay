@@ -5,7 +5,6 @@ use gpui_kit::component::{
     ActiveTheme as _, Disableable as _, Icon, Selectable as _, Sizable as _, StyledExt as _, Theme,
     WindowExt as _,
     button::{Button, ButtonVariant, ButtonVariants as _},
-    color_picker::{ColorPicker, ColorPickerEvent, ColorPickerState},
     h_flex,
     input::{Input, InputState, Textarea, TextareaState},
     notification::Notification,
@@ -15,12 +14,12 @@ use gpui_kit::component::{
 };
 use gpui_kit::prelude::{FluentBuilder as _, StatefulInteractiveElement as _};
 use gpui_kit::{
-    AnyElement, AppContext as _, Context, Entity, EventEmitter, Hsla, InteractiveElement as _,
-    IntoElement, ParentElement as _, Rgba, SharedString, Styled as _, Subscription, Window, div,
-    px,
+    AnyElement, AppContext as _, Context, Entity, EventEmitter, InteractiveElement as _,
+    IntoElement, ParentElement as _, SharedString, Styled as _, Window, div, px,
 };
 use relay_core::{
-    AppSettings, Appearance, PersonalityPreset, Provider, ReasoningEffort, format_tokens,
+    AppSettings, Appearance, ColorPreset, PersonalityPreset, Provider, ReasoningEffort,
+    format_tokens,
 };
 use relay_store::{Store, StoreStats};
 
@@ -97,19 +96,7 @@ pub struct SettingsView {
     font_family: StringSelect,
     mono_font_family: StringSelect,
     font_size: Entity<InputState>,
-    primary_color: Entity<ColorPickerState>,
-    accent_color: Entity<ColorPickerState>,
-    background_color: Entity<ColorPickerState>,
-    foreground_color: Entity<ColorPickerState>,
-    secondary_color: Entity<ColorPickerState>,
-    secondary_foreground_color: Entity<ColorPickerState>,
-    muted_color: Entity<ColorPickerState>,
-    muted_foreground_color: Entity<ColorPickerState>,
-    border_color: Entity<ColorPickerState>,
-    input_color: Entity<ColorPickerState>,
-    sidebar_color: Entity<ColorPickerState>,
-    sidebar_foreground_color: Entity<ColorPickerState>,
-    sidebar_accent_color: Entity<ColorPickerState>,
+    color_preset: StringSelect,
     ollama_url: Entity<InputState>,
     ollama_model: Entity<InputState>,
     local_url: Entity<InputState>,
@@ -125,88 +112,11 @@ pub struct SettingsView {
     memories: Vec<(String, String)>,
     memory_input: Entity<InputState>,
     scroll: gpui_kit::ScrollHandle,
-    _color_subscriptions: Vec<Subscription>,
 }
 
 impl EventEmitter<SettingsEvent> for SettingsView {}
 
 impl SettingsView {
-    fn parse_hex_color(hex: &str) -> Option<Hsla> {
-        let hex = hex.trim();
-        if hex.is_empty() {
-            return None;
-        }
-        let hex = hex.strip_prefix('#').unwrap_or(hex);
-        if !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
-            return None;
-        }
-        let (r, g, b, a) = match hex.len() {
-            6 => (
-                u8::from_str_radix(&hex[0..2], 16).ok()?,
-                u8::from_str_radix(&hex[2..4], 16).ok()?,
-                u8::from_str_radix(&hex[4..6], 16).ok()?,
-                255u8,
-            ),
-            8 => (
-                u8::from_str_radix(&hex[0..2], 16).ok()?,
-                u8::from_str_radix(&hex[2..4], 16).ok()?,
-                u8::from_str_radix(&hex[4..6], 16).ok()?,
-                u8::from_str_radix(&hex[6..8], 16).ok()?,
-            ),
-            _ => return None,
-        };
-        Some(
-            Rgba {
-                r: r as f32 / 255.0,
-                g: g as f32 / 255.0,
-                b: b as f32 / 255.0,
-                a: a as f32 / 255.0,
-            }
-            .into(),
-        )
-    }
-
-    fn color_to_hex(color: Option<Hsla>) -> String {
-        let Some(color) = color else {
-            return String::new();
-        };
-        let rgba = Rgba::from(color);
-        let ch = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
-        if rgba.a < 1.0 {
-            format!(
-                "#{:02X}{:02X}{:02X}{:02X}",
-                ch(rgba.r),
-                ch(rgba.g),
-                ch(rgba.b),
-                ch(rgba.a)
-            )
-        } else {
-            format!("#{:02X}{:02X}{:02X}", ch(rgba.r), ch(rgba.g), ch(rgba.b))
-        }
-    }
-
-    fn make_color_picker(
-        hex: &str,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-        on_change: impl Fn(&mut Self, Option<Hsla>, &mut Context<Self>) + 'static,
-    ) -> (Entity<ColorPickerState>, Subscription) {
-        let state = cx.new(|cx| {
-            let mut s = ColorPickerState::new(window, cx);
-            if let Some(c) = Self::parse_hex_color(hex) {
-                s = s.default_value(c);
-            }
-            s
-        });
-        let sub = cx.subscribe_in(&state, window, move |this, state, event, _window, cx| {
-            if matches!(event, ColorPickerEvent::Change(_)) {
-                let value = state.read(cx).value();
-                on_change(this, value, cx);
-            }
-        });
-        (state, sub)
-    }
-
     pub fn new(
         store: Store,
         settings: AppSettings,
@@ -256,31 +166,15 @@ impl SettingsView {
             cx,
         );
         let font_size = text_input(window, cx, "15", &format!("{:.1}", settings.font_size));
-
-        let mut color_subs: Vec<Subscription> = Vec::new();
-        macro_rules! color_picker {
-            ($field:ident) => {{
-                let (s, sub) =
-                    Self::make_color_picker(&settings.$field, window, cx, |this, v, _cx| {
-                        this.settings.$field = Self::color_to_hex(v);
-                    });
-                color_subs.push(sub);
-                s
-            }};
-        }
-        let primary_color = color_picker!(primary_color);
-        let accent_color = color_picker!(accent_color);
-        let background_color = color_picker!(background_color);
-        let foreground_color = color_picker!(foreground_color);
-        let secondary_color = color_picker!(secondary_color);
-        let secondary_foreground_color = color_picker!(secondary_foreground_color);
-        let muted_color = color_picker!(muted_color);
-        let muted_foreground_color = color_picker!(muted_foreground_color);
-        let border_color = color_picker!(border_color);
-        let input_color = color_picker!(input_color);
-        let sidebar_color = color_picker!(sidebar_color);
-        let sidebar_foreground_color = color_picker!(sidebar_foreground_color);
-        let sidebar_accent_color = color_picker!(sidebar_accent_color);
+        let color_preset = models::string_select(
+            &ColorPreset::ALL
+                .iter()
+                .map(|p| SharedString::from(p.label()))
+                .collect::<Vec<_>>(),
+            settings.color_preset.label(),
+            window,
+            cx,
+        );
         let ollama_url = text_input(
             window,
             cx,
@@ -334,19 +228,7 @@ impl SettingsView {
             font_family,
             mono_font_family,
             font_size,
-            primary_color,
-            accent_color,
-            background_color,
-            foreground_color,
-            secondary_color,
-            secondary_foreground_color,
-            muted_color,
-            muted_foreground_color,
-            border_color,
-            input_color,
-            sidebar_color,
-            sidebar_foreground_color,
-            sidebar_accent_color,
+            color_preset,
             ollama_url,
             ollama_model,
             local_url,
@@ -360,7 +242,6 @@ impl SettingsView {
             preset_instructions,
             memory_input,
             scroll: gpui_kit::ScrollHandle::new(),
-            _color_subscriptions: color_subs,
         }
     }
 
@@ -416,23 +297,9 @@ impl SettingsView {
             .trim()
             .parse::<f32>()
             .unwrap_or(self.settings.font_size);
-        self.settings.primary_color = Self::color_to_hex(self.primary_color.read(cx).value());
-        self.settings.accent_color = Self::color_to_hex(self.accent_color.read(cx).value());
-        self.settings.background_color = Self::color_to_hex(self.background_color.read(cx).value());
-        self.settings.foreground_color = Self::color_to_hex(self.foreground_color.read(cx).value());
-        self.settings.secondary_color = Self::color_to_hex(self.secondary_color.read(cx).value());
-        self.settings.secondary_foreground_color =
-            Self::color_to_hex(self.secondary_foreground_color.read(cx).value());
-        self.settings.muted_color = Self::color_to_hex(self.muted_color.read(cx).value());
-        self.settings.muted_foreground_color =
-            Self::color_to_hex(self.muted_foreground_color.read(cx).value());
-        self.settings.border_color = Self::color_to_hex(self.border_color.read(cx).value());
-        self.settings.input_color = Self::color_to_hex(self.input_color.read(cx).value());
-        self.settings.sidebar_color = Self::color_to_hex(self.sidebar_color.read(cx).value());
-        self.settings.sidebar_foreground_color =
-            Self::color_to_hex(self.sidebar_foreground_color.read(cx).value());
-        self.settings.sidebar_accent_color =
-            Self::color_to_hex(self.sidebar_accent_color.read(cx).value());
+        if let Some(v) = self.color_preset.read(cx).selected_value().cloned() {
+            self.settings.color_preset = ColorPreset::from_str(v.as_ref());
+        }
         self.settings.ollama_base_url = self.ollama_url.read(cx).value().to_string();
         self.settings.ollama_model = self.ollama_model.read(cx).value().to_string();
         self.settings.local_base_url = self.local_url.read(cx).value().to_string();
@@ -681,19 +548,7 @@ impl SettingsView {
         self.settings.font_family = defaults.font_family.clone();
         self.settings.mono_font_family = defaults.mono_font_family.clone();
         self.settings.font_size = defaults.font_size;
-        self.settings.primary_color = defaults.primary_color.clone();
-        self.settings.accent_color = defaults.accent_color.clone();
-        self.settings.background_color = defaults.background_color.clone();
-        self.settings.foreground_color = defaults.foreground_color.clone();
-        self.settings.secondary_color = defaults.secondary_color.clone();
-        self.settings.secondary_foreground_color = defaults.secondary_foreground_color.clone();
-        self.settings.muted_color = defaults.muted_color.clone();
-        self.settings.muted_foreground_color = defaults.muted_foreground_color.clone();
-        self.settings.border_color = defaults.border_color.clone();
-        self.settings.input_color = defaults.input_color.clone();
-        self.settings.sidebar_color = defaults.sidebar_color.clone();
-        self.settings.sidebar_foreground_color = defaults.sidebar_foreground_color.clone();
-        self.settings.sidebar_accent_color = defaults.sidebar_accent_color.clone();
+        self.settings.color_preset = defaults.color_preset;
 
         self.font_family.update(cx, |s, cx| {
             s.set_selected_value(
@@ -712,42 +567,13 @@ impl SettingsView {
         self.font_size.update(cx, |s, cx| {
             s.set_value(format!("{:.1}", defaults.font_size), window, cx)
         });
-
-        macro_rules! clear_picker {
-            ($field:ident, $default:expr) => {{
-                let state = self.$field.clone();
-                state.update(cx, |s, cx| {
-                    if let Some(c) = Self::parse_hex_color(&$default) {
-                        s.set_value(c, window, cx);
-                    } else {
-                        s.clear_value(window, cx);
-                    }
-                });
-                self.settings.$field = $default;
-            }};
-        }
-        clear_picker!(primary_color, defaults.primary_color.clone());
-        clear_picker!(accent_color, defaults.accent_color.clone());
-        clear_picker!(background_color, defaults.background_color.clone());
-        clear_picker!(foreground_color, defaults.foreground_color.clone());
-        clear_picker!(secondary_color, defaults.secondary_color.clone());
-        clear_picker!(
-            secondary_foreground_color,
-            defaults.secondary_foreground_color.clone()
-        );
-        clear_picker!(muted_color, defaults.muted_color.clone());
-        clear_picker!(
-            muted_foreground_color,
-            defaults.muted_foreground_color.clone()
-        );
-        clear_picker!(border_color, defaults.border_color.clone());
-        clear_picker!(input_color, defaults.input_color.clone());
-        clear_picker!(sidebar_color, defaults.sidebar_color.clone());
-        clear_picker!(
-            sidebar_foreground_color,
-            defaults.sidebar_foreground_color.clone()
-        );
-        clear_picker!(sidebar_accent_color, defaults.sidebar_accent_color.clone());
+        self.color_preset.update(cx, |s, cx| {
+            s.set_selected_value(
+                &SharedString::from(defaults.color_preset.label()),
+                window,
+                cx,
+            );
+        });
         cx.notify();
     }
 
@@ -835,19 +661,7 @@ impl SettingsView {
         let font_family = self.font_family.clone();
         let mono_font_family = self.mono_font_family.clone();
         let font_size = self.font_size.clone();
-        let primary_color = self.primary_color.clone();
-        let accent_color = self.accent_color.clone();
-        let background_color = self.background_color.clone();
-        let foreground_color = self.foreground_color.clone();
-        let secondary_color = self.secondary_color.clone();
-        let secondary_foreground_color = self.secondary_foreground_color.clone();
-        let muted_color = self.muted_color.clone();
-        let muted_foreground_color = self.muted_foreground_color.clone();
-        let border_color = self.border_color.clone();
-        let input_color = self.input_color.clone();
-        let sidebar_color = self.sidebar_color.clone();
-        let sidebar_foreground_color = self.sidebar_foreground_color.clone();
-        let sidebar_accent_color = self.sidebar_accent_color.clone();
+        let color_preset = self.color_preset.clone();
 
         v_flex()
             .gap_6()
@@ -895,8 +709,8 @@ impl SettingsView {
                     )),
             )
             .child(section(
-                "Typography & colors",
-                "Customize fonts and interface colors. Leave a color empty to use the theme default for your appearance mode.",
+                "Appearance",
+                "Customize fonts and choose a color preset. Presets are tuned to stay readable in both light and dark mode.",
                 &theme,
             ))
             .child(
@@ -916,25 +730,17 @@ impl SettingsView {
                         "Base UI font size.",
                         Input::new(&font_size).w(px(120.)),
                     ))
-                    .child(self.color_field("Primary color", "Buttons/accents.", &primary_color, cx))
-                    .child(self.color_field("Accent color", "Accent/ring highlight.", &accent_color, cx))
-                    .child(self.color_field("Background", "Main app background.", &background_color, cx))
-                    .child(self.color_field("Foreground", "Main text color.", &foreground_color, cx))
-                    .child(self.color_field("Surface / secondary", "Cards, bubbles, inputs.", &secondary_color, cx))
-                    .child(self.color_field("Secondary text", "Text on secondary surfaces.", &secondary_foreground_color, cx))
-                    .child(self.color_field("Muted", "Muted surfaces.", &muted_color, cx))
-                    .child(self.color_field("Muted text", "Secondary/muted text.", &muted_foreground_color, cx))
-                    .child(self.color_field("Border", "Borders and dividers.", &border_color, cx))
-                    .child(self.color_field("Input border", "Input field borders.", &input_color, cx))
-                    .child(self.color_field("Sidebar background", "Sidebar/titlebar background.", &sidebar_color, cx))
-                    .child(self.color_field("Sidebar text", "Sidebar text color.", &sidebar_foreground_color, cx))
-                    .child(self.color_field("Sidebar accent", "Sidebar hover/active highlight.", &sidebar_accent_color, cx))
+                    .child(field(
+                        "Color preset",
+                        "Applies accent colors that look right in both Light and Dark mode.",
+                        div().w(px(240.)).child(Select::new(&color_preset).w_full()),
+                    ))
                     .child(
                         h_flex().gap_2().child(
                             Button::new("reset-appearance")
                                 .outline()
                                 .small()
-                                .label("Reset fonts & colors")
+                                .label("Reset appearance")
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.reset_appearance(window, cx);
                                 })),
@@ -1451,47 +1257,6 @@ impl SettingsView {
                 ),
             )
             .into_any_element()
-    }
-
-    fn color_field(
-        &self,
-        label: &'static str,
-        description: &'static str,
-        state: &Entity<ColorPickerState>,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let state_c = state.clone();
-        let hex = Self::color_to_hex(state.read(cx).value());
-        field(
-            label,
-            description,
-            h_flex()
-                .gap_2()
-                .items_center()
-                .child(ColorPicker::new(state).small())
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .w(px(90.))
-                        .child(if hex.is_empty() {
-                            "Default".to_owned()
-                        } else {
-                            hex
-                        }),
-                )
-                .child(
-                    Button::new(SharedString::from(format!("clear-color-{label}")))
-                        .ghost()
-                        .xsmall()
-                        .label("Default")
-                        .on_click(cx.listener(move |_, _, window, cx| {
-                            state_c.update(cx, |s, cx| s.clear_value(window, cx));
-                        })),
-                )
-                .into_any_element(),
-        )
-        .into_any_element()
     }
 
     fn render_about(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> AnyElement {

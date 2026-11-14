@@ -46,7 +46,7 @@ pub use prompt::{
     RequestMessage, conversation_markdown, estimate_tokens, fit_history, request_history,
     title_from_prompt,
 };
-pub use settings::{AppSettings, Appearance, ProviderKeys, ReasoningEffort};
+pub use settings::{AppSettings, Appearance, ColorPreset, ProviderKeys, ReasoningEffort};
 pub use tool::{
     AgentMode, Tool, ToolApproval, ToolCall, ToolResult, ToolSpec, is_command_nondestructive,
     should_auto_approve, tool_specs,

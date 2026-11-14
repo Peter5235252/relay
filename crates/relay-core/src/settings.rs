@@ -129,6 +129,81 @@ impl Appearance {
 
 use crate::tool::{AgentMode, ToolApproval};
 
+/// Curated interface color preset. Presets are tuned to remain readable in both
+/// light and dark appearance modes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ColorPreset {
+    /// Use the default Relay/kit theme accents.
+    #[default]
+    Default,
+    /// Blue accents.
+    Ocean,
+    /// Teal/green accents.
+    Forest,
+    /// Warm rose accents.
+    Rose,
+    /// Amber accents.
+    Amber,
+    /// Violet accents.
+    Violet,
+    /// Neutral graphite accents.
+    Graphite,
+}
+
+impl ColorPreset {
+    /// All presets in display order.
+    pub const ALL: [Self; 7] = [
+        Self::Default,
+        Self::Ocean,
+        Self::Forest,
+        Self::Rose,
+        Self::Amber,
+        Self::Violet,
+        Self::Graphite,
+    ];
+
+    /// Stable id for persistence and lookups.
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::Ocean => "ocean",
+            Self::Forest => "forest",
+            Self::Rose => "rose",
+            Self::Amber => "amber",
+            Self::Violet => "violet",
+            Self::Graphite => "graphite",
+        }
+    }
+
+    /// Display label.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Default => "Default",
+            Self::Ocean => "Ocean",
+            Self::Forest => "Forest",
+            Self::Rose => "Rose",
+            Self::Amber => "Amber",
+            Self::Violet => "Violet",
+            Self::Graphite => "Graphite",
+        }
+    }
+
+    /// Resolve from a stored id/label.
+    pub fn from_str(value: &str) -> Self {
+        let v = value.trim().to_ascii_lowercase();
+        match v.as_str() {
+            "ocean" | "blue" => Self::Ocean,
+            "forest" | "green" | "teal" => Self::Forest,
+            "rose" | "pink" => Self::Rose,
+            "amber" | "orange" => Self::Amber,
+            "violet" | "purple" => Self::Violet,
+            "graphite" | "slate" | "neutral" => Self::Graphite,
+            _ => Self::Default,
+        }
+    }
+}
+
 /// Non-secret application preferences, persisted in SQLite.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -146,32 +221,8 @@ pub struct AppSettings {
     pub mono_font_family: String,
     /// Base UI font size in pixels.
     pub font_size: f32,
-    /// Primary accent color (hex). Empty = theme default.
-    pub primary_color: String,
-    /// Accent color (hex). Empty = theme default.
-    pub accent_color: String,
-    /// Main background color (hex). Empty = theme default.
-    pub background_color: String,
-    /// Main foreground/text color (hex). Empty = theme default.
-    pub foreground_color: String,
-    /// Secondary/surface background (hex). Empty = theme default.
-    pub secondary_color: String,
-    /// Secondary foreground (hex). Empty = theme default.
-    pub secondary_foreground_color: String,
-    /// Muted background (hex). Empty = theme default.
-    pub muted_color: String,
-    /// Muted foreground (hex). Empty = theme default.
-    pub muted_foreground_color: String,
-    /// Border color (hex). Empty = theme default.
-    pub border_color: String,
-    /// Input/surface border color (hex). Empty = theme default.
-    pub input_color: String,
-    /// Sidebar background (hex). Empty = theme default.
-    pub sidebar_color: String,
-    /// Sidebar foreground (hex). Empty = theme default.
-    pub sidebar_foreground_color: String,
-    /// Sidebar accent/hover color (hex). Empty = theme default.
-    pub sidebar_accent_color: String,
+    /// Curated interface color preset.
+    pub color_preset: ColorPreset,
     /// User-authored instructions appended to the active personality preset.
     pub custom_instructions: String,
     /// Active built-in or user preset id.
@@ -208,19 +259,7 @@ impl Default for AppSettings {
             font_family: "Fira Sans".to_owned(),
             mono_font_family: "DejaVu Sans Mono".to_owned(),
             font_size: 15.0,
-            primary_color: String::new(),
-            accent_color: String::new(),
-            background_color: String::new(),
-            foreground_color: String::new(),
-            secondary_color: String::new(),
-            secondary_foreground_color: String::new(),
-            muted_color: String::new(),
-            muted_foreground_color: String::new(),
-            border_color: String::new(),
-            input_color: String::new(),
-            sidebar_color: String::new(),
-            sidebar_foreground_color: String::new(),
-            sidebar_accent_color: String::new(),
+            color_preset: ColorPreset::Default,
             custom_instructions: String::new(),
             active_preset_id: "balanced".to_owned(),
             show_thinking: true,
@@ -256,19 +295,6 @@ impl AppSettings {
         if self.mono_font_family.trim().is_empty() {
             self.mono_font_family = "DejaVu Sans Mono".to_owned();
         }
-        self.primary_color = self.primary_color.trim().to_owned();
-        self.accent_color = self.accent_color.trim().to_owned();
-        self.background_color = self.background_color.trim().to_owned();
-        self.foreground_color = self.foreground_color.trim().to_owned();
-        self.secondary_color = self.secondary_color.trim().to_owned();
-        self.secondary_foreground_color = self.secondary_foreground_color.trim().to_owned();
-        self.muted_color = self.muted_color.trim().to_owned();
-        self.muted_foreground_color = self.muted_foreground_color.trim().to_owned();
-        self.border_color = self.border_color.trim().to_owned();
-        self.input_color = self.input_color.trim().to_owned();
-        self.sidebar_color = self.sidebar_color.trim().to_owned();
-        self.sidebar_foreground_color = self.sidebar_foreground_color.trim().to_owned();
-        self.sidebar_accent_color = self.sidebar_accent_color.trim().to_owned();
         self.ollama_base_url = normalize_url(&self.ollama_base_url);
         self.local_base_url = normalize_url(&self.local_base_url);
         self.ollama_model = self.ollama_model.trim().to_owned();
