@@ -108,3 +108,10 @@ pub fn install_typography(cx: &mut App, settings: &relay_core::AppSettings) {
         theme.radius_lg = px(12.);
     });
 }
+
+/// Apply appearance mode then reapply all user customizations.
+pub fn apply_theme(settings: &AppSettings, window: &mut Window, cx: &mut App) {
+    apply_appearance(settings.appearance, window, cx);
+    install_typography(cx, settings);
+    apply_colors(settings, cx);
+}

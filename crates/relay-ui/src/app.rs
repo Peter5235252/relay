@@ -742,9 +742,7 @@ impl RelayApp {
         self.chat.composer.update(cx, |composer, cx| {
             composer.set_submit_on_enter(self.settings.send_on_enter, cx);
         });
-        theme::apply_colors(&self.settings, cx);
-        theme::install_typography(cx, &self.settings);
-        theme::apply_appearance(self.settings.appearance, window, cx);
+        theme::apply_theme(&self.settings, window, cx);
         self.rebuild_model_select(window, cx);
         self.rebuild_reasoning_select(window, cx);
         self.rebuild_approval_select(window, cx);

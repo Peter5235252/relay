@@ -118,8 +118,7 @@ fn main() -> ExitCode {
             cx.activate(true);
             let settings_for_window = settings.clone();
             match gpui_kit::open_window(options, cx, move |window, cx| {
-                theme::apply_colors(&settings_for_window, cx);
-                theme::apply_appearance(appearance, window, cx);
+                theme::apply_theme(&settings_for_window, window, cx);
                 let store = store.clone();
                 let handle = handle.clone();
                 let bundled = bundled.clone();
