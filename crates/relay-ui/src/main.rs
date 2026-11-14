@@ -1,6 +1,7 @@
 //! Relay desktop application.
 
 mod app;
+mod bundled;
 mod chat;
 mod keys;
 mod models;
@@ -86,6 +87,14 @@ fn main() -> ExitCode {
     let settings = store.load_settings().unwrap_or_default();
     let appearance = settings.appearance;
 
+    let bundled = std::sync::Arc::new(std::sync::Mutex::new(bundled::BundledState::default()));
+    {
+        let b = bundled.clone();
+        handle.spawn(async move {
+            bundled::ensure_ready(b).await;
+        });
+    }
+
     gpui_kit::application()
         .with_assets(gpui_kit::assets::AllAssets)
         .run(move |cx| {
@@ -103,6 +112,7 @@ fn main() -> ExitCode {
 
             let store = store.clone();
             let handle = handle.clone();
+            let bundled = bundled.clone();
             cx.activate(true);
             let settings_for_window = settings.clone();
             match gpui_kit::open_window(options, cx, move |window, cx| {
@@ -110,7 +120,8 @@ fn main() -> ExitCode {
                 theme::apply_appearance(appearance, window, cx);
                 let store = store.clone();
                 let handle = handle.clone();
-                cx.new(|cx| RelayApp::new(store, handle, window, cx))
+                let bundled = bundled.clone();
+                cx.new(|cx| RelayApp::new(store, handle, bundled, window, cx))
             }) {
                 Ok((window, _)) => {
                     let _ = window.update(cx, |_, window, _| window.activate_window());

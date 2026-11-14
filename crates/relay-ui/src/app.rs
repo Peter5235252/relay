@@ -5,6 +5,7 @@
 //! `settings`; this module holds the behavior they share.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
 
 use gpui_kit::component::{
     ActiveTheme as _, StyledExt as _, TitleBar, WindowExt as _, h_flex,
@@ -106,12 +107,21 @@ pub struct RelayApp {
     model_subscription: Option<Subscription>,
     reasoning_subscription: Option<Subscription>,
     settings_subscription: Option<Subscription>,
+    bundled: Arc<Mutex<crate::bundled::BundledState>>,
+    bundled_applied: bool,
+    bundled_needs_refresh: bool,
     _subscriptions: Vec<Subscription>,
 }
 
 impl RelayApp {
     /// Build the application, restoring the most recent conversation.
-    pub fn new(store: Store, runtime: Handle, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        store: Store,
+        runtime: Handle,
+        bundled: Arc<Mutex<crate::bundled::BundledState>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let settings = store.load_settings().unwrap_or_default();
         let conversations = store.list_conversations().unwrap_or_default();
         let latest = store.latest_conversation().ok().flatten();
@@ -177,10 +187,14 @@ impl RelayApp {
             model_subscription: None,
             reasoning_subscription: None,
             settings_subscription: None,
+            bundled,
+            bundled_applied: false,
+            bundled_needs_refresh: false,
             _subscriptions: Vec::new(),
         };
 
         app.attach_subscriptions(window, cx);
+        app.spawn_bundled_watcher(cx);
 
         if let Some(summary) = latest {
             app.load_conversation_data(&summary.id, window, cx);
@@ -189,6 +203,52 @@ impl RelayApp {
         }
 
         app
+    }
+
+    fn spawn_bundled_watcher(&mut self, cx: &mut Context<Self>) {
+        let bundled = self.bundled.clone();
+        cx.spawn(async move |weak_self, cx| {
+            loop {
+                smol::Timer::after(std::time::Duration::from_secs(2)).await;
+                let status = bundled.lock().map(|s| s.status()).unwrap_or_default();
+                if !status.ready || status.endpoint.is_none() {
+                    continue;
+                }
+                let endpoint = status.endpoint.clone().unwrap_or_default();
+                let done = weak_self.update(cx, |this, cx| {
+                    if this.bundled_applied {
+                        return true;
+                    }
+                    this.bundled_applied = true;
+                    let should_set = this.settings.local_model.trim().is_empty()
+                        || this.settings.local_model == crate::bundled::MODEL_ID;
+                    if should_set {
+                        this.settings.local_base_url = endpoint;
+                        this.settings.local_model = crate::bundled::MODEL_ID.to_owned();
+                    }
+                    if !this.cloud_keys_ready && this.conversation_id.is_none() {
+                        this.draft_model = format!("local/{}", crate::bundled::MODEL_ID);
+                        this.settings.default_model = this.draft_model.clone();
+                    }
+                    this.persist_settings();
+                    this.bundled_needs_refresh = true;
+                    cx.notify();
+                    true
+                });
+                if done.unwrap_or(true) {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn apply_bundled_ready(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.bundled_needs_refresh = false;
+        self.rebuild_model_select(window, cx);
+        self.rebuild_reasoning_select(window, cx);
+        self.notice = Some("Bundled local model is ready.".to_owned());
+        cx.notify();
     }
 
     // MARK: Subscriptions
@@ -531,6 +591,26 @@ impl RelayApp {
         }
 
         let model = self.current_model();
+        if model.slug == format!("local/{}", crate::bundled::MODEL_ID) {
+            let status = self.bundled.lock().map(|s| s.status()).unwrap_or_default();
+            if !status.ready {
+                let msg = if let Some(err) = status.error {
+                    format!("Bundled model unavailable: {err}")
+                } else {
+                    format!(
+                        "Bundled model is preparing: {}",
+                        if status.message.is_empty() {
+                            "downloading…".into()
+                        } else {
+                            status.message
+                        }
+                    )
+                };
+                self.notice = Some(msg);
+                cx.notify();
+                return;
+            }
+        }
         if model.provider.requires_api_key() && keys::resolve(model.provider).is_none() {
             self.notice = Some(format!(
                 "Add a {} API key in Settings to talk to {}.",
@@ -938,6 +1018,9 @@ impl RelayApp {
 
 impl Render for RelayApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.bundled_needs_refresh {
+            self.apply_bundled_ready(window, cx);
+        }
         let theme = cx.theme().clone();
         let sidebar = self.render_sidebar(window, cx).into_any_element();
         let main = self.render_main(window, cx).into_any_element();
