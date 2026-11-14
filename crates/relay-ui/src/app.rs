@@ -736,13 +736,23 @@ impl RelayApp {
                 }
             }
         }
-        let system = compose_system_prompt(preset.as_ref(), &custom);
-        request = request.with_system_prompt(system.clone());
+        let mut system = compose_system_prompt(preset.as_ref(), &custom)
+            .unwrap_or_else(|| relay_core::BASE_SYSTEM_PROMPT.to_owned());
+        if model.is_local() {
+            system.push_str("\n\nLocal model tool-use rules: Use the provided function/tool calls exactly as specified—do not invent tool call syntax in plain text. Before claiming a file was created/changed, ensure a write tool call succeeded; before claiming contents, ensure read/list tool results show them. For Desktop on localized systems (e.g. Hungarian 'Asztal'), locate it via $HOME (e.g. run_command: echo $HOME, then list_dir) rather than guessing paths. If unsure, inspect first, then act, then verify with a tool.");
+        }
+        let system_opt = if system.trim().is_empty() {
+            None
+        } else {
+            Some(system.clone())
+        };
+        request = request.with_system_prompt(system_opt.clone());
+        let system_ref = system_opt.as_deref();
         let history = fit_history(
             request_history(&self.messages),
             model.context_window,
             request.output_limit(),
-            system.as_deref(),
+            system_ref,
         );
         request.messages = history;
         if model.provider.is_local() {
