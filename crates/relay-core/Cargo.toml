@@ -1,0 +1,21 @@
+[package]
+name = "relay-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Provider-neutral conversation types, model catalog, prompt assembly, and cost accounting for Relay."
+
+[dependencies]
+chrono.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,82 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/relay-core",
+    "crates/relay-store",
+    "crates/relay-providers",
+    "crates/relay-ui",
+]
+default-members = ["crates/relay-ui"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+license = "Apache-2.0"
+authors = ["Relay Contributors"]
+repository = "https://github.com/csemanpeter/relay"
+
+[workspace.dependencies]
+relay-core = { path = "crates/relay-core" }
+relay-store = { path = "crates/relay-store" }
+relay-providers = { path = "crates/relay-providers" }
+
+# The GPUI Kit release pins its matching GPUI snapshot. Keep this exact: mixing
+# snapshots breaks the pre-1.0 GPUI API.
+gpui-kit = "=0.9.1"
+
+bytes = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
+directories = "6"
+futures-util = "0.3"
+keyring = { version = "4.2", default-features = true }
+reqwest = { version = "0.12", default-features = false, features = [
+    "charset",
+    "http2",
+    "json",
+    "rustls-tls-native-roots",
+    "stream",
+] }
+rusqlite = { version = "0.42", features = ["bundled", "chrono", "serde_json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+smol = "2"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+zeroize = { version = "1", features = ["derive"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+dbg_macro = "deny"
+todo = "deny"
+unwrap_used = "warn"
+expect_used = "warn"
+
+[profile.dev]
+debug = "limited"
+split-debuginfo = "unpacked"
+
+# GPUI spends most of its debug-build time in its rendering and text stack.
+# Optimizing only those dependencies keeps builds quick while producing a
+# smooth 60 fps UI.
+[profile.dev.package]
+gpui-pre = { opt-level = 3 }
+gpui-pre-platform = { opt-level = 3 }
+gpui-pre-sum-tree = { opt-level = 3 }
+resvg = { opt-level = 3 }
+rustybuzz = { opt-level = 3 }
+taffy = { opt-level = 3 }
+ttf-parser = { opt-level = 3 }
+ropey = { opt-level = 3 }
+
+[profile.release]
+strip = "symbols"
+lto = "thin"
+codegen-units = 1

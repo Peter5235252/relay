@@ -1,0 +1,10 @@
+/target
+/dist
+/packaging/appimage/AppDir
+/packaging/appimage/*.AppImage
+*.db
+*.db-shm
+*.db-wal
+.env
+.DS_Store
+*.swp

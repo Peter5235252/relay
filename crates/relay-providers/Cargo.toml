@@ -1,0 +1,31 @@
+[package]
+name = "relay-providers"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Streaming Gemini, Claude, OpenAI, Ollama, and OpenAI-compatible clients for Relay."
+
+[dependencies]
+relay-core.workspace = true
+bytes.workspace = true
+futures-util.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+smol.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+url = "2"
+zeroize.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+wiremock = "0.6"
+
+[lints]
+workspace = true
