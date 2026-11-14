@@ -14,9 +14,9 @@ use gpui_kit::component::{
 use gpui_kit::prelude::{FluentBuilder as _, StatefulInteractiveElement as _};
 use gpui_kit::{
     AnyElement, AppContext as _, ClipboardItem, Context, InteractiveElement as _, IntoElement,
-    ParentElement as _, SharedString, Styled as _, Window, div, px,
+    KeyDownEvent, ParentElement as _, SharedString, Styled as _, Window, div, px,
 };
-use relay_core::{ChatMessage, ContentBlock, Role, format_tokens};
+use relay_core::{AgentMode, ChatMessage, ContentBlock, Role, ToolApproval, format_tokens};
 
 use crate::app::RelayApp;
 use crate::models;
@@ -669,109 +669,225 @@ impl RelayApp {
     ) -> impl IntoElement {
         let theme = cx.theme().clone();
         let hint = if self.settings.send_on_enter {
-            "Enter to send · Shift+Enter for a new line"
+            "Enter to send · Shift+Enter for a new line · Shift+Tab to toggle Plan/Build"
         } else {
-            "Enter for a new line · Use the send button to submit"
+            "Enter for a new line · Send button to submit · Shift+Tab to toggle Plan/Build"
         };
         let model = self.current_model();
+        let mode = self.settings.agent_mode;
+        let approval = self.settings.tool_approval;
+        let outline = match mode {
+            AgentMode::Plan => gpui_kit::rgb(0xeab308),  // yellow
+            AgentMode::Build => gpui_kit::rgb(0x3b82f6), // blue
+        };
+        let mode_label = mode.label();
+        let mode_color = outline;
 
-        v_flex().flex_none().px_6().pb_5().pt_2().gap_2().child(
-            div()
-                .max_w(px(820.))
-                .w_full()
-                .mx_auto()
-                .when_some(notice, |this, notice| {
-                    this.child(
-                        h_flex()
-                            .gap_2()
-                            .items_start()
-                            .rounded(theme.radius)
-                            .border_1()
-                            .border_color(theme.danger)
-                            .bg(theme.input)
-                            .px_3()
-                            .py_2()
-                            .child(Icon::new(IconName::CircleAlert).text_color(theme.danger))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .text_sm()
-                                    .whitespace_normal()
-                                    .child(SharedString::from(notice)),
-                            )
-                            .child(
-                                Button::new("notice-settings")
-                                    .outline()
-                                    .small()
-                                    .label("Settings")
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.open_settings(window, cx);
-                                    })),
-                            )
-                            .child(
-                                Button::new("notice-dismiss")
-                                    .ghost()
-                                    .small()
-                                    .icon(Icon::new(IconName::Close))
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.notice = None;
-                                        cx.notify();
-                                    })),
-                            ),
-                    )
-                })
-                .child(
-                    v_flex()
-                        .gap_1()
-                        .rounded(theme.radius_lg)
-                        .border_1()
-                        .border_color(if streaming {
-                            theme.primary
-                        } else {
-                            theme.border
-                        })
-                        .bg(theme.input)
-                        .p_2()
-                        .child(Textarea::new(composer).appearance(false).bordered(false))
-                        .child(
+        let pending = self.pending_approval.as_ref().map(|req| {
+            (
+                req.call.name.clone(),
+                tool_arg_summary(&req.call.name, &req.call.arguments),
+            )
+        });
+
+        v_flex()
+            .flex_none()
+            .px_6()
+            .pb_5()
+            .pt_2()
+            .gap_2()
+            .child(
+                div()
+                    .max_w(px(820.))
+                    .w_full()
+                    .mx_auto()
+                    .gap_2()
+                    .when_some(notice, |this, notice| {
+                        this.child(
                             h_flex()
-                                .justify_between()
-                                .items_center()
                                 .gap_2()
+                                .items_start()
+                                .rounded(theme.radius)
+                                .border_1()
+                                .border_color(theme.danger)
+                                .bg(theme.input)
+                                .px_3()
+                                .py_2()
+                                .child(Icon::new(IconName::CircleAlert).text_color(theme.danger))
                                 .child(
                                     div()
                                         .flex_1()
-                                        .text_xs()
-                                        .text_color(theme.muted_foreground)
-                                        .text_ellipsis()
-                                        .child(SharedString::from(format!(
-                                            "{} · {}",
-                                            model.name, hint
-                                        ))),
+                                        .text_sm()
+                                        .whitespace_normal()
+                                        .child(SharedString::from(notice)),
                                 )
-                                .child(if streaming {
-                                    Button::new("stop")
-                                        .danger()
-                                        .icon(Icon::new(IconName::Square))
-                                        .tooltip("Stop generating")
-                                        .on_click(cx.listener(|this, _, _, cx| {
-                                            this.stop_stream(cx);
-                                        }))
-                                        .into_any_element()
-                                } else {
-                                    Button::new("send")
-                                        .primary()
-                                        .icon(Icon::new(IconName::ArrowUp))
-                                        .tooltip("Send")
-                                        .disabled(!can_send)
+                                .child(
+                                    Button::new("notice-settings")
+                                        .outline()
+                                        .small()
+                                        .label("Settings")
                                         .on_click(cx.listener(|this, _, window, cx| {
-                                            this.send(window, cx);
-                                        }))
-                                        .into_any_element()
-                                }),
-                        ),
-                ),
-        )
+                                            this.open_settings(window, cx);
+                                        })),
+                                )
+                                .child(
+                                    Button::new("notice-dismiss")
+                                        .ghost()
+                                        .small()
+                                        .icon(Icon::new(IconName::Close))
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.notice = None;
+                                            cx.notify();
+                                        })),
+                                ),
+                        )
+                    })
+                    .when_some(pending, |this, (name, arg)| {
+                        let detail = if arg.is_empty() { name.clone() } else { format!("{name}: {arg}") };
+                        this.child(
+                            div()
+                                .rounded(theme.radius_lg)
+                                .border_1()
+                                .border_color(gpui_kit::rgb(0xf59e0b))
+                                .bg(theme.input)
+                                .p_3()
+                                .child(
+                                    v_flex()
+                                        .gap_2()
+                                        .child(
+                                            h_flex()
+                                                .gap_2()
+                                                .items_center()
+                                                .child(Icon::new(IconName::TriangleAlert).text_color(gpui_kit::rgb(0xf59e0b)))
+                                                .child(div().text_sm().font_semibold().child("Tool approval required"))
+                                                .child(div().text_xs().text_color(theme.muted_foreground).child(SharedString::from(detail))),
+                                        )
+                                        .child(
+                                            h_flex()
+                                                .gap_2()
+                                                .child(
+                                                    Button::new("approve-tool")
+                                                        .primary()
+                                                        .small()
+                                                        .label("Allow")
+                                                        .on_click(cx.listener(|this, _, _, cx| {
+                                                            this.respond_tool_approval(true, cx);
+                                                        })),
+                                                )
+                                                .child(
+                                                    Button::new("deny-tool")
+                                                        .danger()
+                                                        .small()
+                                                        .label("Deny")
+                                                        .on_click(cx.listener(|this, _, _, cx| {
+                                                            this.respond_tool_approval(false, cx);
+                                                        })),
+                                                ),
+                                        ),
+                                ),
+                        )
+                    })
+                    .child(
+                        v_flex()
+                            .id("composer-box")
+                            .gap_2()
+                            .rounded(theme.radius_lg)
+                            .border_2()
+                            .border_color(outline)
+                            .bg(theme.input)
+                            .p_2()
+                            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                                let ks = &event.keystroke;
+                                if ks.modifiers.shift && ks.key == "tab" {
+                                    this.toggle_agent_mode(window, cx);
+                                    cx.stop_propagation();
+                                }
+                            }))
+                            .child(
+                                h_flex()
+                                    .flex_wrap()
+                                    .gap_2()
+                                    .items_center()
+                                    .px_1()
+                                    .child(
+                                        Button::new("mode-toggle")
+                                            .small()
+                                            .ghost()
+                                            .label(SharedString::from(format!("Mode: {mode_label} (Shift+Tab)")))
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                this.toggle_agent_mode(window, cx);
+                                            })),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(mode_color)
+                                            .child(if mode == AgentMode::Plan { "Read-only" } else { "Can run tools (approval required)" }),
+                                    )
+                                    .child(div().flex_1())
+                                    .child(div().text_xs().text_color(theme.muted_foreground).child("Auto-approval:"))
+                                    .child(self.approval_button(ToolApproval::None, approval, theme.clone(), cx))
+                                    .child(self.approval_button(ToolApproval::NonDestructive, approval, theme.clone(), cx))
+                                    .child(self.approval_button(ToolApproval::All, approval, theme.clone(), cx)),
+                            )
+                            .when(mode == AgentMode::Build && approval == ToolApproval::All, |this| {
+                                this.child(
+                                    h_flex()
+                                        .gap_2()
+                                        .items_center()
+                                        .px_2()
+                                        .py_1()
+                                        .rounded(theme.radius)
+                                        .bg(gpui_kit::rgba(0xdc262620))
+                                        .child(Icon::new(IconName::TriangleAlert).small().text_color(gpui_kit::rgb(0xdc2626)))
+                                        .child(
+                                            div()
+                                                .text_xs()
+                                                .text_color(gpui_kit::rgb(0xdc2626))
+                                                .child("Warning: Auto-approve all can execute destructive commands without approval, including if the model is prompt-injected or tampered with."),
+                                        ),
+                                )
+                            })
+                            .child(Textarea::new(composer).appearance(false).bordered(false))
+                            .child(
+                                h_flex()
+                                    .justify_between()
+                                    .items_center()
+                                    .gap_2()
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .text_xs()
+                                            .text_color(theme.muted_foreground)
+                                            .text_ellipsis()
+                                            .child(SharedString::from(format!(
+                                                "{} · {}",
+                                                model.name, hint
+                                            ))),
+                                    )
+                                    .child(if streaming {
+                                        Button::new("stop")
+                                            .danger()
+                                            .icon(Icon::new(IconName::Square))
+                                            .tooltip("Stop generating")
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.stop_stream(cx);
+                                            }))
+                                            .into_any_element()
+                                    } else {
+                                        Button::new("send")
+                                            .primary()
+                                            .icon(Icon::new(IconName::ArrowUp))
+                                            .tooltip("Send")
+                                            .disabled(!can_send)
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                this.send(window, cx);
+                                            }))
+                                            .into_any_element()
+                                    }),
+                            ),
+                    ),
+            )
     }
 
     fn copy_conversation(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -787,6 +903,40 @@ impl RelayApp {
         }
         cx.write_to_clipboard(ClipboardItem::new_string(markdown));
         window.push_notification("Conversation copied as Markdown", cx);
+    }
+
+    fn approval_button(
+        &self,
+        target: ToolApproval,
+        current: ToolApproval,
+        theme: gpui_kit::component::Theme,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let selected = target == current;
+        let mut btn = Button::new(SharedString::from(format!("approval-{:?}", target)))
+            .small()
+            .label(target.label());
+        if selected {
+            btn = btn.primary();
+        } else {
+            btn = btn.ghost();
+        }
+        if target == ToolApproval::All {
+            let icon_color = if selected {
+                theme.primary_foreground
+            } else {
+                theme.danger
+            };
+            btn = btn.icon(
+                Icon::new(IconName::TriangleAlert)
+                    .small()
+                    .text_color(icon_color),
+            );
+        }
+        btn.on_click(cx.listener(move |this, _, _window, cx| {
+            this.set_tool_approval(target, cx);
+        }))
+        .into_any_element()
     }
 }
 

@@ -5,21 +5,33 @@
 //! events back over a `smol` channel. That channel is executor-agnostic and is
 //! what the GPUI task awaits.
 
-use relay_core::{RequestMessage, Role, ToolCall};
+use relay_core::{AgentMode, RequestMessage, Role, ToolApproval, ToolCall, should_auto_approve};
 use relay_providers::{ChatRequest, ProviderClient, StreamEvent};
 use smol::channel::{Receiver, unbounded};
 use std::process::Command;
 use tokio::runtime::Handle;
+use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
+
+/// Approval request sent to the UI for a tool call.
+pub struct ApprovalRequest {
+    pub call: ToolCall,
+    pub respond: oneshot::Sender<bool>,
+}
 
 /// A provider request that has been handed to the network runtime.
 pub struct StartedStream {
     pub events: Receiver<StreamEvent>,
     pub error: Receiver<String>,
+    pub approvals: Receiver<ApprovalRequest>,
     pub cancel: CancellationToken,
 }
 
-fn run_tool(call: &ToolCall, build: bool) -> String {
+fn run_tool(call: &ToolCall, mode: AgentMode) -> String {
+    // Strict Plan mode: read-only only.
+    if mode == AgentMode::Plan && !matches!(call.name.as_str(), "read_file" | "list_dir") {
+        return "error: tool not allowed in Plan mode (read-only)".to_owned();
+    }
     match call.name.as_str() {
         "read_file" => {
             let path = call
@@ -51,6 +63,9 @@ fn run_tool(call: &ToolCall, build: bool) -> String {
             }
         }
         "run_command" => {
+            if mode == AgentMode::Plan {
+                return "error: run_command not allowed in Plan mode".to_owned();
+            }
             let cmd = call
                 .arguments
                 .get("command")
@@ -72,14 +87,18 @@ fn run_tool(call: &ToolCall, build: bool) -> String {
             }
         }
         "write_file" => {
-            if !build {
+            if mode == AgentMode::Plan {
                 return "error: write_file not allowed in Plan mode".to_owned();
             }
             let path = call
                 .arguments
                 .get("path")
                 .and_then(|v| v.as_str())
-                .unwrap_or("");
+                .unwrap_or("")
+                .trim();
+            if path.is_empty() {
+                return "error: missing path".to_owned();
+            }
             let content = call
                 .arguments
                 .get("content")
@@ -94,14 +113,18 @@ fn run_tool(call: &ToolCall, build: bool) -> String {
     }
 }
 
-pub fn start(handle: &Handle, request: ChatRequest) -> Result<StartedStream, String> {
+pub fn start(
+    handle: &Handle,
+    request: ChatRequest,
+    mode: AgentMode,
+    approval: ToolApproval,
+) -> Result<StartedStream, String> {
     let client = ProviderClient::new().map_err(|e| e.to_string())?;
     let (events_tx, events_rx) = unbounded::<StreamEvent>();
     let (error_tx, error_rx) = unbounded::<String>();
+    let (approval_tx, approval_rx) = unbounded::<ApprovalRequest>();
     let cancel = CancellationToken::new();
     let token = cancel.clone();
-
-    let build = request.tools.iter().any(|t| t.name == "write_file");
 
     handle.spawn(async move {
         let mut request = request;
@@ -145,6 +168,10 @@ pub fn start(handle: &Handle, request: ChatRequest) -> Result<StartedStream, Str
                     tool_calls.push(c);
                 }
             }
+            // Enforce mode: drop disallowed tools in Plan.
+            if mode == AgentMode::Plan {
+                tool_calls.retain(|c| matches!(c.name.as_str(), "read_file" | "list_dir"));
+            }
             for c in &tool_calls {
                 let _ = events_tx.send(StreamEvent::ToolCall(c.clone())).await;
             }
@@ -166,9 +193,25 @@ pub fn start(handle: &Handle, request: ChatRequest) -> Result<StartedStream, Str
                 tool_calls: tool_calls.clone(),
                 tool_call_id: None,
             });
-            // Execute tools and append results.
+            // Execute tools (with approval in Build mode).
             for call in &tool_calls {
-                let output = run_tool(call, build);
+                let mut allowed = should_auto_approve(mode, approval, &call.name, &call.arguments);
+                if !allowed {
+                    let (tx, rx) = oneshot::channel();
+                    let _ = approval_tx
+                        .send(ApprovalRequest {
+                            call: call.clone(),
+                            respond: tx,
+                        })
+                        .await;
+                    // If UI doesn't respond, default deny.
+                    allowed = rx.await.unwrap_or(false);
+                }
+                let output = if allowed {
+                    run_tool(call, mode)
+                } else {
+                    "error: denied by user".to_owned()
+                };
                 let _ = events_tx
                     .send(StreamEvent::ToolResult {
                         id: call.id.clone(),
@@ -190,6 +233,7 @@ pub fn start(handle: &Handle, request: ChatRequest) -> Result<StartedStream, Str
     Ok(StartedStream {
         events: events_rx,
         error: error_rx,
+        approvals: approval_rx,
         cancel,
     })
 }

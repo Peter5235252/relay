@@ -110,6 +110,7 @@ pub struct RelayApp {
     bundled: Arc<Mutex<crate::bundled::BundledState>>,
     bundled_applied: bool,
     bundled_needs_refresh: bool,
+    pub(crate) pending_approval: Option<crate::streaming::ApprovalRequest>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -190,6 +191,7 @@ impl RelayApp {
             bundled,
             bundled_applied: false,
             bundled_needs_refresh: false,
+            pending_approval: None,
             _subscriptions: Vec::new(),
         };
 
@@ -428,9 +430,38 @@ impl RelayApp {
     }
 
     fn abandon_stream(&mut self) {
+        if let Some(req) = self.pending_approval.take() {
+            let _ = req.respond.send(false);
+        }
         if let Some(stream) = self.stream.take() {
             stream.cancel.cancel();
         }
+    }
+
+    pub(crate) fn respond_tool_approval(&mut self, allow: bool, cx: &mut Context<Self>) {
+        if let Some(req) = self.pending_approval.take() {
+            let _ = req.respond.send(allow);
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn toggle_agent_mode(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.settings.agent_mode = match self.settings.agent_mode {
+            relay_core::AgentMode::Plan => relay_core::AgentMode::Build,
+            relay_core::AgentMode::Build => relay_core::AgentMode::Plan,
+        };
+        self.persist_settings();
+        cx.notify();
+    }
+
+    pub(crate) fn set_tool_approval(
+        &mut self,
+        approval: relay_core::ToolApproval,
+        cx: &mut Context<Self>,
+    ) {
+        self.settings.tool_approval = approval;
+        self.persist_settings();
+        cx.notify();
     }
 
     // MARK: Pickers
@@ -781,7 +812,12 @@ impl RelayApp {
         self.focus_composer(window, cx);
         self.notice = None;
 
-        let started = match streaming::start(&self.runtime, request) {
+        let started = match streaming::start(
+            &self.runtime,
+            request,
+            self.settings.agent_mode,
+            self.settings.tool_approval,
+        ) {
             Ok(started) => started,
             Err(error) => {
                 self.messages.retain(|message| message.id != message_id);
@@ -798,6 +834,7 @@ impl RelayApp {
         let StartedStream {
             events,
             error: error_rx,
+            approvals,
             cancel,
         } = started;
 
@@ -821,6 +858,16 @@ impl RelayApp {
                 })
                 .ok();
         });
+
+        cx.spawn(async move |weak_self, cx| {
+            while let Ok(req) = approvals.recv().await {
+                let _ = weak_self.update(cx, |this, cx| {
+                    this.pending_approval = Some(req);
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
 
         self.stream = Some(ActiveStream {
             conversation_id,
@@ -905,6 +952,9 @@ impl RelayApp {
         let Some(stream) = self.stream.take() else {
             return;
         };
+        if let Some(req) = self.pending_approval.take() {
+            let _ = req.respond.send(false);
+        }
         let cancelled = stream.cancel.is_cancelled();
 
         let Some(index) = self

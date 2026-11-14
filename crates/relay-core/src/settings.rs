@@ -127,7 +127,7 @@ impl Appearance {
     }
 }
 
-use crate::tool::AgentMode;
+use crate::tool::{AgentMode, ToolApproval};
 
 /// Non-secret application preferences, persisted in SQLite.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -138,6 +138,8 @@ pub struct AppSettings {
     pub appearance: Appearance,
     /// Agent operating mode for terminal tools.
     pub agent_mode: AgentMode,
+    /// Auto-approval policy for tool execution.
+    pub tool_approval: ToolApproval,
     /// UI font family.
     pub font_family: String,
     /// Monospace font family for code.
@@ -180,6 +182,7 @@ impl Default for AppSettings {
             default_model: DEFAULT_MODEL_SLUG.to_owned(),
             appearance: Appearance::System,
             agent_mode: AgentMode::Plan,
+            tool_approval: ToolApproval::None,
             font_family: "Fira Sans".to_owned(),
             mono_font_family: "DejaVu Sans Mono".to_owned(),
             font_size: 15.0,
