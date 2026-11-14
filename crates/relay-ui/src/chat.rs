@@ -669,9 +669,9 @@ impl RelayApp {
     ) -> impl IntoElement {
         let theme = cx.theme().clone();
         let hint = if self.settings.send_on_enter {
-            "Enter to send · Shift+Enter for a new line · Shift+Tab to toggle Plan/Build"
+            "Enter to send · Shift+Enter newline · Shift+Tab mode"
         } else {
-            "Enter for a new line · Send button to submit · Shift+Tab to toggle Plan/Build"
+            "Enter newline · Send button · Shift+Tab mode"
         };
         let model = self.current_model();
         let mode = self.settings.agent_mode;
@@ -681,7 +681,7 @@ impl RelayApp {
             AgentMode::Build => gpui_kit::rgb(0x3b82f6), // blue
         };
         let mode_label = mode.label();
-        let mode_color = outline;
+        let approval_select = self.chat.approval_select.clone();
 
         let pending = self.pending_approval.as_ref().map(|req| {
             (
@@ -805,49 +805,48 @@ impl RelayApp {
                             }))
                             .child(
                                 h_flex()
-                                    .flex_wrap()
                                     .gap_2()
                                     .items_center()
                                     .px_1()
-                                    .child(
-                                        Button::new("mode-toggle")
+                                    .child({
+                                        let mut btn = Button::new("mode-toggle")
                                             .small()
-                                            .ghost()
-                                            .label(SharedString::from(format!("Mode: {mode_label} (Shift+Tab)")))
+                                            .label(SharedString::from(format!("{mode_label} · Shift+Tab")))
+                                            .tooltip(if mode == AgentMode::Plan {
+                                                "Plan: read-only tools only"
+                                            } else {
+                                                "Build: can run tools with approval"
+                                            })
                                             .on_click(cx.listener(|this, _, window, cx| {
                                                 this.toggle_agent_mode(window, cx);
-                                            })),
-                                    )
+                                            }));
+                                        btn = if mode == AgentMode::Plan { btn.ghost() } else { btn.outline() };
+                                        btn
+                                    })
                                     .child(
                                         div()
-                                            .text_xs()
-                                            .text_color(mode_color)
-                                            .child(if mode == AgentMode::Plan { "Read-only" } else { "Can run tools (approval required)" }),
+                                            .w(px(220.))
+                                            .flex_shrink_0()
+                                            .child(Select::new(&approval_select).w_full()),
                                     )
-                                    .child(div().flex_1())
-                                    .child(div().text_xs().text_color(theme.muted_foreground).child("Auto-approval:"))
-                                    .child(self.approval_button(ToolApproval::None, approval, theme.clone(), cx))
-                                    .child(self.approval_button(ToolApproval::NonDestructive, approval, theme.clone(), cx))
-                                    .child(self.approval_button(ToolApproval::All, approval, theme.clone(), cx)),
+                                    .when(mode == AgentMode::Build && approval == ToolApproval::All, |this| {
+                                        this.child(
+                                            h_flex()
+                                                .gap_1()
+                                                .items_center()
+                                                .flex_1()
+                                                .min_w_0()
+                                                .child(Icon::new(IconName::TriangleAlert).xsmall().text_color(theme.danger))
+                                                .child(
+                                                    div()
+                                                        .text_xs()
+                                                        .text_color(theme.danger)
+                                                        .text_ellipsis()
+                                                        .child("Auto-approve all: destructive commands may run without approval (prompt injection risk)."),
+                                                ),
+                                        )
+                                    }),
                             )
-                            .when(mode == AgentMode::Build && approval == ToolApproval::All, |this| {
-                                this.child(
-                                    h_flex()
-                                        .gap_2()
-                                        .items_center()
-                                        .px_2()
-                                        .py_1()
-                                        .rounded(theme.radius)
-                                        .bg(gpui_kit::rgba(0xdc262620))
-                                        .child(Icon::new(IconName::TriangleAlert).small().text_color(gpui_kit::rgb(0xdc2626)))
-                                        .child(
-                                            div()
-                                                .text_xs()
-                                                .text_color(gpui_kit::rgb(0xdc2626))
-                                                .child("Warning: Auto-approve all can execute destructive commands without approval, including if the model is prompt-injected or tampered with."),
-                                        ),
-                                )
-                            })
                             .child(Textarea::new(composer).appearance(false).bordered(false))
                             .child(
                                 h_flex()
@@ -903,40 +902,6 @@ impl RelayApp {
         }
         cx.write_to_clipboard(ClipboardItem::new_string(markdown));
         window.push_notification("Conversation copied as Markdown", cx);
-    }
-
-    fn approval_button(
-        &self,
-        target: ToolApproval,
-        current: ToolApproval,
-        theme: gpui_kit::component::Theme,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let selected = target == current;
-        let mut btn = Button::new(SharedString::from(format!("approval-{:?}", target)))
-            .small()
-            .label(target.label());
-        if selected {
-            btn = btn.primary();
-        } else {
-            btn = btn.ghost();
-        }
-        if target == ToolApproval::All {
-            let icon_color = if selected {
-                theme.primary_foreground
-            } else {
-                theme.danger
-            };
-            btn = btn.icon(
-                Icon::new(IconName::TriangleAlert)
-                    .small()
-                    .text_color(icon_color),
-            );
-        }
-        btn.on_click(cx.listener(move |this, _, _window, cx| {
-            this.set_tool_approval(target, cx);
-        }))
-        .into_any_element()
     }
 }
 

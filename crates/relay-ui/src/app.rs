@@ -55,6 +55,7 @@ pub struct ChatState {
     pub(crate) composer: Entity<TextareaState>,
     pub(crate) model_select: ModelSelect,
     pub(crate) reasoning_select: Option<Entity<SelectState<SearchableVec<SharedString>>>>,
+    pub(crate) approval_select: Entity<SelectState<SearchableVec<SharedString>>>,
     /// Markdown state per assistant message.
     pub(crate) text_states: HashMap<String, Entity<TextViewState>>,
     /// Markdown state per reasoning block.
@@ -106,6 +107,7 @@ pub struct RelayApp {
     pub(crate) cloud_keys_ready: bool,
     model_subscription: Option<Subscription>,
     reasoning_subscription: Option<Subscription>,
+    approval_subscription: Option<Subscription>,
     settings_subscription: Option<Subscription>,
     bundled: Arc<Mutex<crate::bundled::BundledState>>,
     bundled_applied: bool,
@@ -153,6 +155,12 @@ impl RelayApp {
                 cx,
             ))
         };
+        let approval_select = models::string_select(
+            &approval_labels(),
+            settings.tool_approval.label(),
+            window,
+            cx,
+        );
 
         let mut app = Self {
             store,
@@ -172,6 +180,7 @@ impl RelayApp {
                 composer,
                 model_select,
                 reasoning_select,
+                approval_select,
                 text_states: HashMap::new(),
                 thinking_states: HashMap::new(),
                 expanded: HashSet::new(),
@@ -187,6 +196,7 @@ impl RelayApp {
                 .any(|provider| keys::source(*provider).is_set()),
             model_subscription: None,
             reasoning_subscription: None,
+            approval_subscription: None,
             settings_subscription: None,
             bundled,
             bundled_applied: false,
@@ -258,6 +268,7 @@ impl RelayApp {
     fn attach_subscriptions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.attach_model_subscription(window, cx);
         self.attach_reasoning_subscription(window, cx);
+        self.attach_approval_subscription(window, cx);
 
         let search = self.sidebar.search.clone();
         self._subscriptions
@@ -312,6 +323,25 @@ impl RelayApp {
                     }
                 }),
             );
+    }
+
+    fn attach_approval_subscription(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let select = self.chat.approval_select.clone();
+        self.approval_subscription = Some(cx.subscribe_in(
+            &select,
+            window,
+            |this, _, event, _window, cx| {
+                if let SelectEvent::Confirm(Some(label)) = event {
+                    if label.as_ref() == relay_core::ToolApproval::None.label() {
+                        this.set_tool_approval(relay_core::ToolApproval::None, cx);
+                    } else if label.as_ref() == relay_core::ToolApproval::NonDestructive.label() {
+                        this.set_tool_approval(relay_core::ToolApproval::NonDestructive, cx);
+                    } else if label.as_ref() == relay_core::ToolApproval::All.label() {
+                        this.set_tool_approval(relay_core::ToolApproval::All, cx);
+                    }
+                }
+            },
+        ));
     }
 
     // MARK: Conversation state
@@ -528,6 +558,17 @@ impl RelayApp {
         self.attach_reasoning_subscription(window, cx);
     }
 
+    fn rebuild_approval_select(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let select = models::string_select(
+            &approval_labels(),
+            self.settings.tool_approval.label(),
+            window,
+            cx,
+        );
+        self.chat.approval_select = select;
+        self.attach_approval_subscription(window, cx);
+    }
+
     // MARK: Settings
 
     pub(crate) fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -595,6 +636,7 @@ impl RelayApp {
         theme::apply_appearance(self.settings.appearance, window, cx);
         self.rebuild_model_select(window, cx);
         self.rebuild_reasoning_select(window, cx);
+        self.rebuild_approval_select(window, cx);
         window.push_notification("Settings saved", cx);
         cx.notify();
     }
@@ -1134,4 +1176,12 @@ pub(crate) fn reasoning_labels() -> Vec<SharedString> {
         .iter()
         .map(|effort| SharedString::from(effort.label()))
         .collect()
+}
+
+pub(crate) fn approval_labels() -> Vec<SharedString> {
+    vec![
+        SharedString::from(relay_core::ToolApproval::None.label()),
+        SharedString::from(relay_core::ToolApproval::NonDestructive.label()),
+        SharedString::from(relay_core::ToolApproval::All.label()),
+    ]
 }
