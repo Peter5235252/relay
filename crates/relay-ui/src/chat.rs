@@ -42,7 +42,7 @@ impl RelayApp {
             self.render_welcome(window, cx).into_any_element()
         } else {
             let mut column = v_flex()
-                .max_w(px(820.))
+                .max_w(px(900.))
                 .w_full()
                 .mx_auto()
                 .px_6()
@@ -698,7 +698,7 @@ impl RelayApp {
             .gap_2()
             .child(
                 div()
-                    .max_w(px(820.))
+                    .max_w(px(900.))
                     .w_full()
                     .mx_auto()
                     .gap_2()
@@ -799,8 +799,9 @@ impl RelayApp {
                             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                                 let ks = &event.keystroke;
                                 if ks.modifiers.shift && ks.key == "tab" {
-                                    this.toggle_agent_mode(window, cx);
+                                    window.prevent_default();
                                     cx.stop_propagation();
+                                    this.toggle_agent_mode(window, cx);
                                 }
                             }))
                             .child(
