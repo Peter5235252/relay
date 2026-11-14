@@ -218,6 +218,7 @@ impl RelayApp {
         };
 
         app.attach_subscriptions(window, cx);
+        app.start_bundled_for_settings();
         app.spawn_bundled_watcher(cx);
 
         if let Some(summary) = latest {
@@ -227,6 +228,50 @@ impl RelayApp {
         }
 
         app
+    }
+
+    fn selected_bundled_variant(&self) -> crate::bundled::BundledVariant {
+        crate::bundled::BundledVariant::from_id(&self.settings.bundled_model_variant)
+            .or_else(|| crate::bundled::BundledVariant::from_model_slug(&self.settings.local_model))
+            .unwrap_or(crate::bundled::DEFAULT_VARIANT)
+    }
+
+    fn bundled_variant_for_slug(slug: &str) -> Option<crate::bundled::BundledVariant> {
+        crate::bundled::BundledVariant::from_model_slug(slug)
+    }
+
+    fn start_bundled_for_settings(&self) {
+        let variant = self.selected_bundled_variant();
+        let bundled = self.bundled.clone();
+        self.runtime.spawn(async move {
+            crate::bundled::ensure_ready(bundled, variant).await;
+        });
+    }
+
+    fn ensure_bundled_variant(
+        &mut self,
+        variant: crate::bundled::BundledVariant,
+        cx: &mut Context<Self>,
+    ) {
+        let status = self.bundled.lock().map(|s| s.status()).unwrap_or_default();
+        let needs = status.active_variant.as_deref() != Some(variant.id())
+            || !status.ready
+            || status.endpoint.is_none();
+        if needs {
+            let bundled = self.bundled.clone();
+            self.runtime.spawn(async move {
+                crate::bundled::ensure_ready(bundled, variant).await;
+            });
+            if let Ok(mut s) = self.bundled.lock() {
+                if s.status.active_variant.as_deref() != Some(variant.id()) {
+                    s.status.ready = false;
+                    s.status.endpoint = None;
+                    s.status.message = format!("Preparing {}…", variant.display_name());
+                    s.status.error = None;
+                }
+            }
+            cx.notify();
+        }
     }
 
     fn spawn_bundled_watcher(&mut self, cx: &mut Context<Self>) {
@@ -239,29 +284,36 @@ impl RelayApp {
                     continue;
                 }
                 let endpoint = status.endpoint.clone().unwrap_or_default();
-                let done = weak_self.update(cx, |this, cx| {
-                    if this.bundled_applied {
-                        return true;
+                let active = status.active_variant.clone().unwrap_or_default();
+                let _ = weak_self.update(cx, |this, cx| {
+                    if this.bundled_applied
+                        && this.settings.local_base_url == endpoint
+                        && this.settings.local_model == active
+                    {
+                        return;
                     }
                     this.bundled_applied = true;
-                    let should_set = this.settings.local_model.trim().is_empty()
-                        || this.settings.local_model == crate::bundled::MODEL_ID;
-                    if should_set {
-                        this.settings.local_base_url = endpoint;
-                        this.settings.local_model = crate::bundled::MODEL_ID.to_owned();
+                    let desired = this.selected_bundled_variant();
+                    // If the ready variant matches desired/selected bundled, wire settings to it.
+                    if active == desired.id()
+                        || this.settings.local_model.trim().is_empty()
+                        || crate::bundled::BundledVariant::from_id(&this.settings.local_model)
+                            .is_some()
+                    {
+                        this.settings.local_base_url = endpoint.clone();
+                        this.settings.local_model = active.clone();
+                        this.settings.bundled_model_variant = active.clone();
                     }
                     if !this.cloud_keys_ready && this.conversation_id.is_none() {
-                        this.draft_model = format!("local/{}", crate::bundled::MODEL_ID);
+                        let v = crate::bundled::BundledVariant::from_id(&active)
+                            .unwrap_or(crate::bundled::DEFAULT_VARIANT);
+                        this.draft_model = format!("local/{}", v.id());
                         this.settings.default_model = this.draft_model.clone();
                     }
                     this.persist_settings();
                     this.bundled_needs_refresh = true;
                     cx.notify();
-                    true
                 });
-                if done.unwrap_or(true) {
-                    break;
-                }
             }
         })
         .detach();
@@ -271,7 +323,10 @@ impl RelayApp {
         self.bundled_needs_refresh = false;
         self.rebuild_model_select(window, cx);
         self.rebuild_reasoning_select(window, cx);
-        self.notice = Some("Bundled local model is ready.".to_owned());
+        let status = self.bundled.lock().map(|s| s.status()).unwrap_or_default();
+        if status.ready {
+            self.notice = Some(status.message.clone());
+        }
         cx.notify();
     }
 
@@ -639,7 +694,12 @@ impl RelayApp {
                 }
             }
         }
-        self.draft_model = slug;
+        self.draft_model = slug.clone();
+        if let Some(variant) = Self::bundled_variant_for_slug(&slug) {
+            self.settings.bundled_model_variant = variant.id().to_owned();
+            self.persist_settings();
+            self.ensure_bundled_variant(variant, cx);
+        }
         self.rebuild_reasoning_select(window, cx);
         cx.notify();
     }
@@ -746,6 +806,7 @@ impl RelayApp {
         self.rebuild_model_select(window, cx);
         self.rebuild_reasoning_select(window, cx);
         self.rebuild_approval_select(window, cx);
+        self.start_bundled_for_settings();
         window.push_notification("Settings saved", cx);
         cx.notify();
     }
@@ -773,24 +834,35 @@ impl RelayApp {
         }
 
         let model = self.current_model();
-        if model.slug == format!("local/{}", crate::bundled::MODEL_ID) {
+        if let Some(variant) = Self::bundled_variant_for_slug(&model.slug) {
             let status = self.bundled.lock().map(|s| s.status()).unwrap_or_default();
-            if !status.ready {
+            let ready_for_variant =
+                status.ready && status.active_variant.as_deref() == Some(variant.id());
+            if !ready_for_variant {
+                self.ensure_bundled_variant(variant, cx);
                 let msg = if let Some(err) = status.error {
                     format!("Bundled model unavailable: {err}")
                 } else {
+                    let st = self.bundled.lock().map(|s| s.status()).unwrap_or_default();
                     format!(
                         "Bundled model is preparing: {}",
-                        if status.message.is_empty() {
-                            "downloading…".into()
+                        if st.message.is_empty() {
+                            "downloading/starting…".into()
                         } else {
-                            status.message
+                            st.message
                         }
                     )
                 };
                 self.notice = Some(msg);
                 cx.notify();
                 return;
+            }
+            // ensure endpoint/model point to active bundled server
+            if let Some(endpoint) = status.endpoint.clone() {
+                self.settings.local_base_url = endpoint;
+                self.settings.local_model = variant.id().to_owned();
+                self.settings.bundled_model_variant = variant.id().to_owned();
+                self.persist_settings();
             }
         }
         if model.provider.requires_api_key() && keys::resolve(model.provider).is_none() {

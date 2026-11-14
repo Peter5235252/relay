@@ -82,16 +82,15 @@ pub fn groups(settings: &AppSettings) -> Vec<SelectGroup<ModelChoice>> {
     }
 
     let mut local = Vec::new();
-    // Bundled model - always available, auto-prepared on first run.
-    let bundled_slug = format!("local/{}", crate::bundled::MODEL_ID);
-    let already_has_bundled = settings.local_model.trim() == crate::bundled::MODEL_ID;
-    local.push(ModelChoice {
-        slug: bundled_slug.clone(),
-        name: crate::bundled::DISPLAY_NAME.to_owned(),
-        tagline: "Bundled Nemotron 3.5 Bolt E4B · downloads & runs automatically (4-6GB VRAM)."
-            .to_owned(),
-        provider: "Bundled".to_owned(),
-    });
+    // Bundled Nemotron variants - always available, auto-prepared on demand.
+    for variant in crate::bundled::BundledVariant::all() {
+        local.push(ModelChoice {
+            slug: format!("local/{}", variant.id()),
+            name: variant.display_name().to_owned(),
+            tagline: variant.tagline().to_owned(),
+            provider: "Bundled".to_owned(),
+        });
+    }
     if !settings.ollama_model.trim().is_empty() {
         let model = ModelSelection::ollama(&settings.ollama_model);
         local.push(ModelChoice {
@@ -101,8 +100,13 @@ pub fn groups(settings: &AppSettings) -> Vec<SelectGroup<ModelChoice>> {
             provider: Provider::Ollama.label().to_owned(),
         });
     }
-    if !settings.local_model.trim().is_empty() && !already_has_bundled {
-        let model = ModelSelection::openai_compatible(&settings.local_model);
+    let local_model = settings.local_model.trim();
+    if !local_model.is_empty()
+        && crate::bundled::BundledVariant::from_id(local_model).is_none()
+        && crate::bundled::BundledVariant::from_model_slug(&format!("local/{local_model}"))
+            .is_none()
+    {
+        let model = ModelSelection::openai_compatible(local_model);
         local.push(ModelChoice {
             slug: model.slug.clone(),
             name: format!("{} · Local endpoint", model.name),

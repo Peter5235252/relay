@@ -91,8 +91,11 @@ fn main() -> ExitCode {
     let bundled = std::sync::Arc::new(std::sync::Mutex::new(bundled::BundledState::default()));
     {
         let b = bundled.clone();
+        let variant = crate::bundled::BundledVariant::from_id(&settings.bundled_model_variant)
+            .or_else(|| crate::bundled::BundledVariant::from_model_slug(&settings.local_model))
+            .unwrap_or(crate::bundled::DEFAULT_VARIANT);
         handle.spawn(async move {
-            bundled::ensure_ready(b).await;
+            bundled::ensure_ready(b, variant).await;
         });
     }
 

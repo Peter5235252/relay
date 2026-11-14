@@ -245,6 +245,8 @@ pub struct AppSettings {
     pub local_base_url: String,
     /// Preferred local endpoint model.
     pub local_model: String,
+    /// Selected bundled Nemotron variant id (e.g. standard/uncensored).
+    pub bundled_model_variant: String,
     /// Whether the welcome panel has been dismissed.
     pub onboarding_complete: bool,
 }
@@ -271,6 +273,7 @@ impl Default for AppSettings {
             ollama_model: String::new(),
             local_base_url: "http://localhost:8000/v1".to_owned(),
             local_model: String::new(),
+            bundled_model_variant: "Nemotron-3.5-Bolt-E4B-Q4_K_M".to_owned(),
             onboarding_complete: false,
         }
     }
@@ -299,6 +302,10 @@ impl AppSettings {
         self.local_base_url = normalize_url(&self.local_base_url);
         self.ollama_model = self.ollama_model.trim().to_owned();
         self.local_model = self.local_model.trim().to_owned();
+        self.bundled_model_variant = self.bundled_model_variant.trim().to_owned();
+        if self.bundled_model_variant.is_empty() {
+            self.bundled_model_variant = "Nemotron-3.5-Bolt-E4B-Q4_K_M".to_owned();
+        }
         if self.active_preset_id.trim().is_empty() {
             self.active_preset_id = "balanced".to_owned();
         }

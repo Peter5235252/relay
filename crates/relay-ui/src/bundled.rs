@@ -1,4 +1,4 @@
-//! Bundled local model: auto-download and run Nemotron 3.5 Bolt E4B (4GB)
+//! Bundled local models: auto-download and run Nemotron 3.5 Bolt E4B variants
 //! so Relay works immediately without user configuration.
 
 use std::path::{Path, PathBuf};
@@ -9,11 +9,86 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use tokio::io::AsyncWriteExt;
 
-pub const MODEL_ID: &str = "Nemotron-3.5-Bolt-E4B-Q4_K_M";
-pub const DISPLAY_NAME: &str = "Nemotron 3.5 Bolt E4B (local, 4GB)";
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BundledVariant {
+    Standard,
+    Uncensored,
+}
 
-const GGUF_URL: &str = "https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Bolt-E4B-4GB/resolve/main/Nemotron-3.5-Bolt-E4B-Q4_K_M.gguf";
-const GGUF_NAME: &str = "Nemotron-3.5-Bolt-E4B-Q4_K_M.gguf";
+impl BundledVariant {
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::Standard => "Nemotron-3.5-Bolt-E4B-Q4_K_M",
+            Self::Uncensored => "Nemotron-3.5-Bolt-E4B-Uncensored-AD-Q4_K_M",
+        }
+    }
+    pub const fn display_name(self) -> &'static str {
+        match self {
+            Self::Standard => "Nemotron 3.5 Bolt E4B (local, 4GB)",
+            Self::Uncensored => "Nemotron 3.5 Bolt E4B Uncensored (local, ~5GB)",
+        }
+    }
+    pub const fn tagline(self) -> &'static str {
+        match self {
+            Self::Standard => {
+                "Bundled Nemotron 3.5 Bolt E4B · downloads & runs automatically (4-6GB VRAM)."
+            }
+            Self::Uncensored => {
+                "Bundled uncensored/abliterated Nemotron 3.5 Bolt E4B (AtomicChat) · creative writing, fewer refusals (~5GB)."
+            }
+        }
+    }
+    pub const fn gguf_url(self) -> &'static str {
+        match self {
+            Self::Standard => {
+                "https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Bolt-E4B-4GB/resolve/main/Nemotron-3.5-Bolt-E4B-Q4_K_M.gguf"
+            }
+            Self::Uncensored => {
+                "https://huggingface.co/AtomicChat/NVIDIA-Nemotron-3.5-Bolt-E4B-Uncensored-GGUF/resolve/main/NVIDIA-Nemotron-3.5-Bolt-E4B-Uncensored-AD-Q4_K_M/NVIDIA-Nemotron-3.5-Bolt-E4B-Uncensored-AD-Q4_K_M-00001-of-00001.gguf"
+            }
+        }
+    }
+    pub const fn gguf_name(self) -> &'static str {
+        match self {
+            Self::Standard => "Nemotron-3.5-Bolt-E4B-Q4_K_M.gguf",
+            Self::Uncensored => {
+                "NVIDIA-Nemotron-3.5-Bolt-E4B-Uncensored-AD-Q4_K_M-00001-of-00001.gguf"
+            }
+        }
+    }
+    pub const fn download_label(self) -> &'static str {
+        match self {
+            Self::Standard => "Nemotron 3.5 Bolt (4GB)",
+            Self::Uncensored => "Nemotron 3.5 Bolt Uncensored (~5GB)",
+        }
+    }
+    pub fn from_id(id: &str) -> Option<Self> {
+        let id = id.trim();
+        if id == Self::Standard.id()
+            || id.eq_ignore_ascii_case("standard")
+            || id.eq_ignore_ascii_case("base")
+        {
+            Some(Self::Standard)
+        } else if id == Self::Uncensored.id()
+            || id.eq_ignore_ascii_case("uncensored")
+            || id.eq_ignore_ascii_case("abliterated")
+        {
+            Some(Self::Uncensored)
+        } else {
+            None
+        }
+    }
+    pub fn from_model_slug(slug: &str) -> Option<Self> {
+        let id = slug.strip_prefix("local/").unwrap_or(slug);
+        Self::from_id(id)
+    }
+    pub const fn all() -> [Self; 2] {
+        [Self::Standard, Self::Uncensored]
+    }
+}
+
+pub const DEFAULT_VARIANT: BundledVariant = BundledVariant::Standard;
+pub const PORT: u16 = 11435;
 
 const LLAMA_TAG: &str = "b12383";
 const LLAMA_ARCHIVE: &str = "llama-b12383-bin-ubuntu-vulkan-x64.tar.gz";
@@ -23,6 +98,7 @@ const LLAMA_URL: &str = "https://github.com/ggml-org/llama.cpp/releases/download
 pub struct BundledStatus {
     pub ready: bool,
     pub endpoint: Option<String>,
+    pub active_variant: Option<String>,
     pub message: String,
     pub error: Option<String>,
 }
@@ -45,8 +121,8 @@ pub fn base_dir() -> Option<PathBuf> {
         .map(|d| d.join("bundled").join("nemotron35-bolt"))
 }
 
-fn model_path(dir: &Path) -> PathBuf {
-    dir.join(GGUF_NAME)
+fn model_path(dir: &Path, variant: BundledVariant) -> PathBuf {
+    dir.join(variant.gguf_name())
 }
 
 fn llama_dir(dir: &Path) -> PathBuf {
@@ -54,7 +130,6 @@ fn llama_dir(dir: &Path) -> PathBuf {
 }
 
 fn find_llama_server(dir: &Path) -> Option<PathBuf> {
-    // search extracted tree for llama-server
     let candidates = [
         llama_dir(dir).join("llama-server"),
         llama_dir(dir).join("bin").join("llama-server"),
@@ -64,7 +139,6 @@ fn find_llama_server(dir: &Path) -> Option<PathBuf> {
             return Some(c);
         }
     }
-    // walk one level deep
     if let Ok(rd) = std::fs::read_dir(llama_dir(dir)) {
         for e in rd.flatten() {
             let p = e.path();
@@ -78,7 +152,6 @@ fn find_llama_server(dir: &Path) -> Option<PathBuf> {
             }
         }
     }
-    // fallback to PATH
     if Command::new("llama-server")
         .arg("--version")
         .stdout(Stdio::null())
@@ -102,7 +175,7 @@ async fn download_file(
     }
     let tmp = dest.with_extension("part");
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(3600))
+        .timeout(Duration::from_secs(7200))
         .build()
         .map_err(|e| e.to_string())?;
     let resp = client.get(url).send().await.map_err(|e| e.to_string())?;
@@ -119,13 +192,11 @@ async fn download_file(
         let chunk = chunk.map_err(|e| e.to_string())?;
         file.write_all(&chunk).await.map_err(|e| e.to_string())?;
         downloaded += chunk.len() as u64;
-        if total > 0 {
-            let pct = (downloaded * 100 / total) as u32;
-            if let Ok(mut s) = state.lock() {
+        if let Ok(mut s) = state.lock() {
+            if total > 0 {
+                let pct = (downloaded * 100 / total) as u32;
                 s.status.message = format!("Downloading {label}… {pct}%");
-            }
-        } else {
-            if let Ok(mut s) = state.lock() {
+            } else {
                 s.status.message = format!("Downloading {label}… {} MB", downloaded / 1_000_000);
             }
         }
@@ -163,7 +234,6 @@ async fn ensure_llama_server(
     })
     .await
     .map_err(|e| e.to_string())??;
-    // make executable
     if let Some(p) = find_llama_server(dir) {
         #[cfg(unix)]
         {
@@ -178,7 +248,7 @@ async fn ensure_llama_server(
 async fn wait_for_server(port: u16) -> bool {
     let url = format!("http://127.0.0.1:{port}/v1/models");
     let client = reqwest::Client::new();
-    for _ in 0..120 {
+    for _ in 0..180 {
         if let Ok(resp) = client
             .get(&url)
             .timeout(Duration::from_secs(2))
@@ -194,7 +264,28 @@ async fn wait_for_server(port: u16) -> bool {
     false
 }
 
-pub async fn ensure_ready(state: Arc<Mutex<BundledState>>) {
+pub fn stop_child(state: &Arc<Mutex<BundledState>>) {
+    if let Ok(mut s) = state.lock() {
+        if let Some(mut c) = s.child.take() {
+            let _ = c.kill();
+            let _ = c.wait();
+        }
+        s.status.ready = false;
+        s.status.endpoint = None;
+        s.status.active_variant = None;
+    }
+}
+
+pub async fn ensure_ready(state: Arc<Mutex<BundledState>>, variant: BundledVariant) {
+    // If already ready with requested variant, nothing to do.
+    if let Ok(s) = state.lock() {
+        if s.status.ready && s.status.active_variant.as_deref() == Some(variant.id()) {
+            return;
+        }
+    }
+    // Stop existing server if switching or not ready.
+    stop_child(&state);
+
     let Some(dir) = base_dir() else {
         if let Ok(mut s) = state.lock() {
             s.status.error = Some("No data dir".into());
@@ -207,13 +298,16 @@ pub async fn ensure_ready(state: Arc<Mutex<BundledState>>) {
         }
         return;
     }
-    let mp = model_path(&dir);
+    let mp = model_path(&dir, variant);
     if let Ok(mut s) = state.lock() {
-        s.status.message = "Preparing bundled local model…".into();
+        s.status.message = format!("Preparing {}…", variant.display_name());
+        s.status.error = None;
     }
 
     if !mp.exists() {
-        if let Err(e) = download_file(GGUF_URL, &mp, &state, "Nemotron 3.5 Bolt (4GB)").await {
+        if let Err(e) =
+            download_file(variant.gguf_url(), &mp, &state, variant.download_label()).await
+        {
             if let Ok(mut s) = state.lock() {
                 s.status.error = Some(e);
                 s.status.message = "Bundled model download failed".into();
@@ -232,17 +326,8 @@ pub async fn ensure_ready(state: Arc<Mutex<BundledState>>) {
         }
     };
 
-    let port: u16 = 11435;
     if let Ok(mut s) = state.lock() {
-        s.status.message = "Starting local model server…".into();
-    }
-
-    // stop previous if any
-    if let Ok(mut s) = state.lock() {
-        if let Some(mut c) = s.child.take() {
-            let _ = c.kill();
-            let _ = c.wait();
-        }
+        s.status.message = format!("Starting {}…", variant.display_name());
     }
 
     let mut cmd = Command::new(&server);
@@ -251,7 +336,7 @@ pub async fn ensure_ready(state: Arc<Mutex<BundledState>>) {
         .arg("--host")
         .arg("127.0.0.1")
         .arg("--port")
-        .arg(port.to_string())
+        .arg(PORT.to_string())
         .arg("-c")
         .arg("8192")
         .arg("-ngl")
@@ -275,12 +360,13 @@ pub async fn ensure_ready(state: Arc<Mutex<BundledState>>) {
         }
     }
 
-    if wait_for_server(port).await {
-        let endpoint = format!("http://127.0.0.1:{port}/v1");
+    if wait_for_server(PORT).await {
+        let endpoint = format!("http://127.0.0.1:{PORT}/v1");
         if let Ok(mut s) = state.lock() {
             s.status.ready = true;
             s.status.endpoint = Some(endpoint);
-            s.status.message = "Bundled local model ready".into();
+            s.status.active_variant = Some(variant.id().to_owned());
+            s.status.message = format!("{} ready", variant.display_name());
             s.status.error = None;
         }
     } else {
@@ -291,12 +377,14 @@ pub async fn ensure_ready(state: Arc<Mutex<BundledState>>) {
     }
 }
 
+// Back-compat convenience for callers expecting old API.
+pub const MODEL_ID: &str = "Nemotron-3.5-Bolt-E4B-Q4_K_M";
+pub const DISPLAY_NAME: &str = "Nemotron 3.5 Bolt E4B (local, 4GB)";
+
+pub async fn ensure_ready_default(state: Arc<Mutex<BundledState>>) {
+    ensure_ready(state, DEFAULT_VARIANT).await;
+}
+
 pub fn stop(state: &Arc<Mutex<BundledState>>) {
-    if let Ok(mut s) = state.lock() {
-        if let Some(mut c) = s.child.take() {
-            let _ = c.kill();
-            let _ = c.wait();
-        }
-        s.status.ready = false;
-    }
+    stop_child(state);
 }
