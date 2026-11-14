@@ -3,6 +3,7 @@
 mod app;
 mod bundled;
 mod chat;
+mod fonts;
 mod keys;
 mod models;
 mod settings;
@@ -99,6 +100,7 @@ fn main() -> ExitCode {
         .with_assets(gpui_kit::assets::AllAssets)
         .run(move |cx| {
             gpui_kit::init(cx);
+            fonts::register(cx);
             theme::install_typography(cx, &settings);
             theme::apply_colors(&settings, cx);
 
