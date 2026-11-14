@@ -16,7 +16,7 @@ use gpui_kit::{
     AnyElement, AppContext as _, ClipboardItem, Context, InteractiveElement as _, IntoElement,
     ParentElement as _, SharedString, Styled as _, Window, div, px,
 };
-use relay_core::{ChatMessage, Role, format_tokens};
+use relay_core::{ChatMessage, ContentBlock, Role, format_tokens};
 
 use crate::app::RelayApp;
 use crate::models;
@@ -359,6 +359,39 @@ impl RelayApp {
                 let message_id = message.id.clone();
                 let copy_text = message.text();
 
+                // Tool call status
+                let tool_uses: Vec<_> = message
+                    .blocks
+                    .iter()
+                    .filter_map(|b| {
+                        if let ContentBlock::ToolUse {
+                            id,
+                            name,
+                            arguments,
+                        } = b
+                        {
+                            Some((id.clone(), name.clone(), arguments.clone()))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                let tool_results: std::collections::HashMap<String, String> = message
+                    .blocks
+                    .iter()
+                    .filter_map(|b| {
+                        if let ContentBlock::ToolResult { id, output, .. } = b {
+                            Some((id.clone(), output.clone()))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                let running_tool = tool_uses
+                    .iter()
+                    .find(|(id, _, _)| !tool_results.contains_key(id))
+                    .map(|(_, n, _)| n.clone());
+
                 let mut block = v_flex().w_full().gap_3().child(
                     h_flex()
                         .gap_2()
@@ -395,19 +428,25 @@ impl RelayApp {
                             )
                         })
                         .when(streaming, |this| {
+                            let label = if let Some(name) = &running_tool {
+                                format!("Running {name}…")
+                            } else if copy_text.trim().is_empty() && tool_uses.is_empty() {
+                                "Thinking…".to_owned()
+                            } else if copy_text.trim().is_empty() {
+                                "Working…".to_owned()
+                            } else {
+                                "Writing…".to_owned()
+                            };
                             this.child(
                                 h_flex()
                                     .gap_1()
                                     .items_center()
                                     .child(Spinner::new().small())
                                     .child(
-                                        div().text_xs().text_color(theme.muted_foreground).child(
-                                            if copy_text.trim().is_empty() {
-                                                "Thinking…"
-                                            } else {
-                                                "Writing…"
-                                            },
-                                        ),
+                                        div()
+                                            .text_xs()
+                                            .text_color(theme.muted_foreground)
+                                            .child(label),
                                     ),
                             )
                         }),
@@ -454,6 +493,82 @@ impl RelayApp {
                                 )
                             }),
                     );
+                }
+
+                // Render tool calls/results
+                if !tool_uses.is_empty() {
+                    let mut tools_col = v_flex().gap_2();
+                    for (id, name, args) in &tool_uses {
+                        let result = tool_results.get(id);
+                        let running = result.is_none();
+                        let arg_summary = tool_arg_summary(name, args);
+                        let out_text = result.cloned().unwrap_or_default();
+                        let short_out = truncate_preview(&out_text, 600);
+                        tools_col = tools_col.child(
+                            div()
+                                .w_full()
+                                .rounded(theme.radius)
+                                .border_1()
+                                .border_color(if running { theme.primary } else { theme.border })
+                                .bg(theme.muted)
+                                .px_3()
+                                .py_2()
+                                .child(
+                                    v_flex()
+                                        .gap_1()
+                                        .child(
+                                            h_flex()
+                                                .gap_2()
+                                                .items_center()
+                                                .child(
+                                                    Icon::new(IconName::Terminal)
+                                                        .small()
+                                                        .text_color(theme.muted_foreground),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .text_xs()
+                                                        .font_semibold()
+                                                        .child(SharedString::from(name.clone())),
+                                                )
+                                                .when(running, |this| {
+                                                    this.child(Spinner::new().xsmall())
+                                                })
+                                                .when(!running, |this| {
+                                                    this.child(
+                                                        Icon::new(IconName::CircleCheck)
+                                                            .small()
+                                                            .text_color(theme.success),
+                                                    )
+                                                })
+                                                .when(!arg_summary.is_empty(), |this| {
+                                                    this.child(
+                                                        div()
+                                                            .text_xs()
+                                                            .text_color(theme.muted_foreground)
+                                                            .text_ellipsis()
+                                                            .child(SharedString::from(arg_summary)),
+                                                    )
+                                                }),
+                                        )
+                                        .when(!short_out.is_empty(), |this| {
+                                            this.child(
+                                                div()
+                                                    .mt_1()
+                                                    .rounded(px(4.))
+                                                    .bg(theme.background)
+                                                    .px_2()
+                                                    .py_1()
+                                                    .text_xs()
+                                                    .font_family(theme.mono_font_family.clone())
+                                                    .whitespace_normal()
+                                                    .child(SharedString::from(short_out)),
+                                            )
+                                        }),
+                                ),
+                        );
+                    }
+                    block = block.child(tools_col);
                 }
 
                 block = block.child(div().min_h(px(24.)).when_some(body, |this, state| {
@@ -707,6 +822,41 @@ fn suggestion(
                 ),
         )
         .into_any_element()
+}
+
+fn tool_arg_summary(name: &str, args: &serde_json::Value) -> String {
+    match name {
+        "run_command" => args
+            .get("command")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_owned(),
+        "read_file" | "list_dir" | "write_file" => args
+            .get("path")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_owned(),
+        _ => {
+            let s = args.to_string();
+            if s == "{}" || s == "null" {
+                String::new()
+            } else {
+                truncate_preview(&s, 80)
+            }
+        }
+    }
+}
+
+fn truncate_preview(s: &str, max: usize) -> String {
+    let s = s.trim();
+    if s.chars().count() <= max {
+        return s.to_owned();
+    }
+    let mut out: String = s.chars().take(max).collect();
+    out.push('…');
+    out
 }
 
 fn format_cost(cost: f64) -> String {

@@ -170,10 +170,11 @@ pub fn start(handle: &Handle, request: ChatRequest) -> Result<StartedStream, Str
             for call in &tool_calls {
                 let output = run_tool(call, build);
                 let _ = events_tx
-                    .send(StreamEvent::Text(format!(
-                        "\n[tool {}] {}\n",
-                        call.name, output
-                    )))
+                    .send(StreamEvent::ToolResult {
+                        id: call.id.clone(),
+                        name: call.name.clone(),
+                        output: output.clone(),
+                    })
                     .await;
                 request.messages.push(RequestMessage {
                     role: Role::Tool,

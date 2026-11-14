@@ -56,6 +56,12 @@ pub enum StreamEvent {
     Usage(Usage),
     /// The model requested a tool call.
     ToolCall(ToolCall),
+    /// Result of executing a tool call (emitted by the UI bridge).
+    ToolResult {
+        id: String,
+        name: String,
+        output: String,
+    },
     /// The response finished normally.
     Done {
         /// Provider-specific finish reason, when reported.

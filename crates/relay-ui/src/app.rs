@@ -871,6 +871,16 @@ impl RelayApp {
                 });
                 cx.notify();
             }
+            StreamEvent::ToolResult { id, output, .. } => {
+                // replace matching ToolUse "running" concept by adding a ToolResult block
+                self.messages[index].blocks.push(ContentBlock::ToolResult {
+                    id,
+                    output,
+                    is_error: false,
+                });
+                self.chat.scroll.scroll_to_bottom();
+                cx.notify();
+            }
         }
     }
 
