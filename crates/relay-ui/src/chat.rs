@@ -669,9 +669,9 @@ impl RelayApp {
     ) -> impl IntoElement {
         let theme = cx.theme().clone();
         let hint = if self.settings.send_on_enter {
-            "Enter to send · Shift+Enter newline · Shift+Tab mode"
+            "Enter to send · Shift+Enter newline · Ctrl+Tab mode"
         } else {
-            "Enter newline · Send button · Shift+Tab mode"
+            "Enter newline · Send button · Ctrl+Tab mode"
         };
         let model = self.current_model();
         let mode = self.settings.agent_mode;
@@ -798,7 +798,7 @@ impl RelayApp {
                             .p_2()
                             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                                 let ks = &event.keystroke;
-                                if ks.modifiers.shift && ks.key == "tab" {
+                                if ks.modifiers.control && !ks.modifiers.shift && ks.key == "tab" {
                                     window.prevent_default();
                                     cx.stop_propagation();
                                     this.toggle_agent_mode(window, cx);
@@ -812,7 +812,7 @@ impl RelayApp {
                                     .child({
                                         let mut btn = Button::new("mode-toggle")
                                             .small()
-                                            .label(SharedString::from(format!("{mode_label} · Shift+Tab")))
+                                            .label(SharedString::from(format!("{mode_label} · Ctrl+Tab")))
                                             .tooltip(if mode == AgentMode::Plan {
                                                 "Plan: read-only tools only"
                                             } else {
