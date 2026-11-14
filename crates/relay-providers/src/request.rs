@@ -1,6 +1,6 @@
 //! Provider-neutral request values.
 
-use relay_core::{ModelSelection, ReasoningEffort, RequestMessage};
+use relay_core::{ModelSelection, ReasoningEffort, RequestMessage, ToolSpec};
 use zeroize::Zeroize;
 
 /// An API key that zeroizes its buffer when dropped.
@@ -60,6 +60,8 @@ pub struct ChatRequest {
     /// Optional base URL override. Used by local endpoints, enterprise
     /// proxies, and tests. Cloud providers default to their public API.
     pub endpoint: Option<String>,
+    /// Tools available to the model.
+    pub tools: Vec<ToolSpec>,
 }
 
 impl ChatRequest {
@@ -75,6 +77,7 @@ impl ChatRequest {
             reasoning,
             api_key: None,
             endpoint: None,
+            tools: Vec::new(),
         }
     }
 
@@ -105,6 +108,12 @@ impl ChatRequest {
     /// Attach an API key.
     pub fn with_api_key(mut self, api_key: impl Into<String>) -> Self {
         self.api_key = Some(ApiKey::new(api_key));
+        self
+    }
+
+    /// Attach available tools.
+    pub fn with_tools(mut self, tools: Vec<ToolSpec>) -> Self {
+        self.tools = tools;
         self
     }
 

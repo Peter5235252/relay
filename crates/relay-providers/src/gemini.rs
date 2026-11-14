@@ -30,6 +30,7 @@ pub(crate) fn body(request: &ChatRequest) -> Value {
         .map(|message| {
             let step_type = match message.role {
                 relay_core::Role::Assistant => "model_output",
+                relay_core::Role::Tool => "tool",
                 _ => "user_input",
             };
             json!({
@@ -67,6 +68,15 @@ pub(crate) fn body(request: &ChatRequest) -> Value {
     body.insert("store".to_owned(), json!(false));
     if let Some(system) = request.system_prompt() {
         body.insert("system_instruction".to_owned(), json!(system));
+    }
+    if !request.tools.is_empty() {
+        let tools: Vec<Value> = request.tools.iter().map(|t| json!({
+            "type": "function",
+            "name": t.name,
+            "description": t.description,
+            "parameters": t.parameters,
+        })).collect();
+        body.insert("tools".to_owned(), Value::Array(tools));
     }
     Value::Object(body)
 }
@@ -271,14 +281,20 @@ mod tests {
                 RequestMessage {
                     role: Role::User,
                     text: "Hello".to_owned(),
+                    tool_calls: Vec::new(),
+                    tool_call_id: None,
                 },
                 RequestMessage {
                     role: Role::Assistant,
                     text: "Hi".to_owned(),
+                    tool_calls: Vec::new(),
+                    tool_call_id: None,
                 },
                 RequestMessage {
                     role: Role::User,
                     text: "Continue".to_owned(),
+                    tool_calls: Vec::new(),
+                    tool_call_id: None,
                 },
             ],
         )

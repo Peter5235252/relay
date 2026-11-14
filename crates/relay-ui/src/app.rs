@@ -19,7 +19,7 @@ use gpui_kit::{
     Styled as _, Subscription, Task, Window, div,
 };
 use relay_core::{
-    AppSettings, ChatMessage, ConversationSummary, ModelSelection, PersonalityPreset, Provider,
+    AppSettings, ChatMessage, ContentBlock, ConversationSummary, ModelSelection, PersonalityPreset, Provider,
     ReasoningEffort, ReasoningKind, Role, compose_system_prompt, find_builtin_preset, fit_history,
     request_history,
 };
@@ -501,6 +501,7 @@ impl RelayApp {
         self.chat.composer.update(cx, |composer, cx| {
             composer.set_submit_on_enter(self.settings.send_on_enter, cx);
         });
+        theme::apply_colors(&self.settings, cx);
         theme::apply_appearance(self.settings.appearance, window, cx);
         self.rebuild_model_select(window, cx);
         self.rebuild_reasoning_select(window, cx);
@@ -583,7 +584,8 @@ impl RelayApp {
         let mut request = ChatRequest::new(model.clone(), Vec::new())
             .with_reasoning(reasoning)
             .with_temperature(self.settings.temperature)
-            .with_max_output_tokens(self.settings.max_output_tokens);
+            .with_max_output_tokens(self.settings.max_output_tokens)
+            .with_tools(relay_core::tool_specs(self.settings.agent_mode));
         let preset = self
             .chat
             .presets
@@ -718,6 +720,14 @@ impl RelayApp {
                 cx.notify();
             }
             StreamEvent::Done { .. } => {}
+            StreamEvent::ToolCall(call) => {
+                self.messages[index].blocks.push(ContentBlock::ToolUse {
+                    id: call.id,
+                    name: call.name,
+                    arguments: call.arguments,
+                });
+                cx.notify();
+            }
         }
     }
 

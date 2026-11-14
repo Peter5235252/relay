@@ -23,15 +23,42 @@ pub(crate) fn body(request: &ChatRequest) -> Value {
         messages.push(json!({ "role": "system", "content": system }));
     }
     for message in &request.messages {
-        if message.text.trim().is_empty() {
+        if message.text.trim().is_empty() && message.tool_calls.is_empty() && message.tool_call_id.is_none() {
             continue;
         }
-        let role = match message.role {
-            relay_core::Role::Assistant => "assistant",
-            relay_core::Role::System => "system",
-            relay_core::Role::User => "user",
-        };
-        messages.push(json!({ "role": role, "content": message.text }));
+        match message.role {
+            relay_core::Role::Assistant => {
+                if !message.text.trim().is_empty() {
+                    messages.push(json!({ "role": "assistant", "content": message.text }));
+                }
+                for call in &message.tool_calls {
+                    messages.push(json!({
+                        "role": "assistant",
+                        "tool_calls": [{
+                            "id": call.id,
+                            "type": "function",
+                            "function": { "name": call.name, "arguments": call.arguments.to_string() }
+                        }]
+                    }));
+                }
+            }
+            relay_core::Role::Tool => {
+                messages.push(json!({
+                    "role": "tool",
+                    "tool_call_id": message.tool_call_id,
+                    "content": message.text,
+                }));
+            }
+            _ => {
+                if !message.text.trim().is_empty() {
+                    let role = match message.role {
+                        relay_core::Role::Assistant => "assistant",
+                        _ => "user",
+                    };
+                    messages.push(json!({ "role": role, "content": message.text }));
+                }
+            }
+        }
     }
 
     let mut map = Map::new();
@@ -43,6 +70,13 @@ pub(crate) fn body(request: &ChatRequest) -> Value {
         json!(request.temperature.clamp(0.0, 2.0)),
     );
     map.insert("max_tokens".to_owned(), json!(request.output_limit()));
+    if !request.tools.is_empty() {
+        let tools: Vec<Value> = request.tools.iter().map(|t| json!({
+            "type": "function",
+            "function": { "name": t.name, "description": t.description, "parameters": t.parameters }
+        })).collect();
+        map.insert("tools".to_owned(), Value::Array(tools));
+    }
     Value::Object(map)
 }
 
@@ -120,6 +154,15 @@ pub(crate) async fn stream(
                         && !content.is_empty()
                     {
                         emit(events, StreamEvent::Text(content.to_owned())).await?;
+                    }
+                    if let Some(tcs) = delta.get("tool_calls").and_then(Value::as_array) {
+                        for (i, tc) in tcs.iter().enumerate() {
+                            let id = tc.get("id").and_then(Value::as_str).map(str::to_owned).unwrap_or_else(|| format!("call_{}", i));
+                            let name = tc.pointer("/function/name").and_then(Value::as_str).unwrap_or("").to_owned();
+                            let args_str = tc.pointer("/function/arguments").and_then(Value::as_str).unwrap_or("");
+                            let args = serde_json::from_str(args_str).unwrap_or(Value::Object(Map::new()));
+                            emit(events, StreamEvent::ToolCall(relay_core::ToolCall { id, name, arguments: args })).await?;
+                        }
                     }
                 }
                 if let Some(reason) = choice.get("finish_reason").and_then(Value::as_str) {
@@ -213,14 +256,20 @@ mod tests {
                 RequestMessage {
                     role: Role::User,
                     text: "Hello".to_owned(),
+                    tool_calls: Vec::new(),
+                    tool_call_id: None,
                 },
                 RequestMessage {
                     role: Role::Assistant,
                     text: "Hi".to_owned(),
+                    tool_calls: Vec::new(),
+                    tool_call_id: None,
                 },
                 RequestMessage {
                     role: Role::User,
                     text: "Continue".to_owned(),
+                    tool_calls: Vec::new(),
+                    tool_call_id: None,
                 },
             ],
         )

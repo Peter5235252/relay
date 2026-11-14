@@ -252,6 +252,14 @@ impl RelayApp {
                         ),
                 )
                 .into_any_element(),
+            Role::Tool => div()
+                .w_full()
+                .px_4()
+                .py_2()
+                .text_xs()
+                .text_color(theme.muted_foreground)
+                .child(SharedString::from(format!("Tool result: {}", message.text())))
+                .into_any_element(),
             Role::Assistant => {
                 let model = message
                     .model

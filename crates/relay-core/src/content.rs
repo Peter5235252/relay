@@ -16,6 +16,8 @@ pub enum Role {
     User,
     /// A model turn.
     Assistant,
+    /// A tool result turn.
+    Tool,
 }
 
 impl Role {
@@ -25,6 +27,7 @@ impl Role {
             Self::System => "system",
             Self::User => "user",
             Self::Assistant => "assistant",
+            Self::Tool => "tool",
         }
     }
 
@@ -34,6 +37,7 @@ impl Role {
             "system" => Some(Self::System),
             "user" => Some(Self::User),
             "assistant" => Some(Self::Assistant),
+            "tool" => Some(Self::Tool),
             _ => None,
         }
     }
@@ -44,6 +48,7 @@ impl Role {
             Self::System => "System",
             Self::User => "You",
             Self::Assistant => "Assistant",
+            Self::Tool => "Tool",
         }
     }
 }
@@ -70,6 +75,26 @@ pub enum ContentBlock {
         /// Provider that produced the block.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         provider: Option<String>,
+    },
+    /// A tool invocation requested by the model.
+    ToolUse {
+        /// Provider tool-call id.
+        id: String,
+        /// Tool name.
+        name: String,
+        /// JSON arguments.
+        #[serde(default)]
+        arguments: serde_json::Value,
+    },
+    /// Result of a tool invocation, sent back to the model.
+    ToolResult {
+        /// Matching tool-call id.
+        id: String,
+        /// Text output.
+        output: String,
+        /// Whether the tool failed.
+        #[serde(default)]
+        is_error: bool,
     },
     /// A block from a newer Relay version.
     #[serde(other)]

@@ -28,6 +28,20 @@ pub(crate) fn body(request: &ChatRequest) -> Value {
     if let Some(system) = request.system_prompt() {
         map.insert("system".to_owned(), json!(system));
     }
+    if !request.tools.is_empty() {
+        let tools: Vec<Value> = request
+            .tools
+            .iter()
+            .map(|t| {
+                json!({
+                    "name": t.name,
+                    "description": t.description,
+                    "input_schema": t.parameters,
+                })
+            })
+            .collect();
+        map.insert("tools".to_owned(), Value::Array(tools));
+    }
 
     match request.reasoning {
         relay_core::ReasoningEffort::Off => {
@@ -52,32 +66,64 @@ pub(crate) fn body(request: &ChatRequest) -> Value {
 }
 
 fn messages(request: &ChatRequest) -> Vec<Value> {
-    let mut turns: Vec<(&str, String)> = Vec::new();
+    let mut out: Vec<Value> = Vec::new();
     for turn in &request.messages {
-        if turn.role == relay_core::Role::System || turn.text.trim().is_empty() {
+        if turn.role == relay_core::Role::System {
             continue;
         }
-        let role = match turn.role {
-            relay_core::Role::Assistant => "assistant",
-            _ => "user",
-        };
-        if let Some(last) = turns.last_mut()
-            && last.0 == role
-        {
-            last.1.push_str("\n\n");
-            last.1.push_str(turn.text.trim_end());
-            continue;
+        match turn.role {
+            relay_core::Role::Assistant => {
+                let mut content: Vec<Value> = Vec::new();
+                if !turn.text.trim().is_empty() {
+                    content.push(json!({ "type": "text", "text": turn.text }));
+                }
+                for call in &turn.tool_calls {
+                    content.push(json!({
+                        "type": "tool_use",
+                        "id": call.id,
+                        "name": call.name,
+                        "input": call.arguments,
+                    }));
+                }
+                if content.is_empty() { continue; }
+                out.push(json!({ "role": "assistant", "content": content }));
+            }
+            relay_core::Role::Tool => {
+                let id = turn.tool_call_id.clone().unwrap_or_default();
+                out.push(json!({
+                    "role": "user",
+                    "content": [{
+                        "type": "tool_result",
+                        "tool_use_id": id,
+                        "content": turn.text,
+                    }]
+                }));
+            }
+            _ => {
+                if turn.text.trim().is_empty() { continue; }
+                // Merge consecutive user text into one turn content array.
+                if let Some(last) = out.last_mut()
+                    && last.get("role").and_then(Value::as_str) == Some("user")
+                    && last.get("content").map(Value::is_array).unwrap_or(false)
+                {
+                    if let Some(arr) = last.get_mut("content").and_then(Value::as_array_mut) {
+                        // only merge if last content is text-only simple; push text block
+                        arr.push(json!({ "type": "text", "text": turn.text }));
+                        continue;
+                    }
+                }
+                out.push(json!({
+                    "role": "user",
+                    "content": [{ "type": "text", "text": turn.text }]
+                }));
+            }
         }
-        turns.push((role, turn.text.trim_end().to_owned()));
     }
     // The Messages API requires the first turn to be from the user.
-    while turns.first().is_some_and(|(role, _)| *role == "assistant") {
-        turns.remove(0);
+    while out.first().is_some_and(|m| m.get("role").and_then(Value::as_str) == Some("assistant")) {
+        out.remove(0);
     }
-    turns
-        .into_iter()
-        .map(|(role, content)| json!({ "role": role, "content": content }))
-        .collect()
+    out
 }
 
 /// Stream a Claude response.
@@ -120,6 +166,9 @@ pub(crate) async fn stream(
     let mut usage = Usage::default();
     let mut stop_reason = None;
     let mut finished = false;
+    let mut tool_id: Option<String> = None;
+    let mut tool_name: Option<String> = None;
+    let mut tool_args = String::new();
 
     while let Some(chunk) = next_chunk(&mut stream, Provider::Anthropic, cancel).await? {
         for event in decoder.push(&chunk) {
@@ -164,6 +213,16 @@ pub(crate) async fn stream(
                                     emit(events, StreamEvent::Thinking(text.to_owned())).await?;
                                 }
                             }
+                            Some("tool_use") => {
+                                tool_id = block.get("id").and_then(Value::as_str).map(str::to_owned);
+                                tool_name = block.get("name").and_then(Value::as_str).map(str::to_owned);
+                                tool_args.clear();
+                                if let Some(input) = block.get("input") {
+                                    if !input.is_null() {
+                                        tool_args = input.to_string();
+                                    }
+                                }
+                            }
                             _ => {}
                         }
                     }
@@ -187,6 +246,11 @@ pub(crate) async fn stream(
                                 emit(events, StreamEvent::Thinking(text.to_owned())).await?;
                             }
                         }
+                        Some("input_json_delta") => {
+                            if let Some(partial) = delta.get("partial_json").and_then(Value::as_str) {
+                                tool_args.push_str(partial);
+                            }
+                        }
                         // Signatures and future delta kinds are ignored.
                         _ => {}
                     }
@@ -204,6 +268,17 @@ pub(crate) async fn stream(
                         value.pointer("/delta/stop_reason").and_then(Value::as_str)
                     {
                         stop_reason = Some(reason.to_owned());
+                    }
+                }
+                "content_block_stop" => {
+                    if let (Some(id), Some(name)) = (tool_id.take(), tool_name.take()) {
+                        let args = serde_json::from_str(&tool_args).unwrap_or(serde_json::json!({}));
+                        emit(events, StreamEvent::ToolCall(relay_core::ToolCall {
+                            id,
+                            name,
+                            arguments: args,
+                        })).await?;
+                        tool_args.clear();
                     }
                 }
                 "message_stop" => {
@@ -264,18 +339,26 @@ mod tests {
                 RequestMessage {
                     role: Role::Assistant,
                     text: "orphan".to_owned(),
+                    tool_calls: Vec::new(),
+                    tool_call_id: None,
                 },
                 RequestMessage {
                     role: Role::User,
                     text: "First".to_owned(),
+                    tool_calls: Vec::new(),
+                    tool_call_id: None,
                 },
                 RequestMessage {
                     role: Role::User,
                     text: "Second".to_owned(),
+                    tool_calls: Vec::new(),
+                    tool_call_id: None,
                 },
                 RequestMessage {
                     role: Role::Assistant,
                     text: "Answer".to_owned(),
+                    tool_calls: Vec::new(),
+                    tool_call_id: None,
                 },
             ],
         )
@@ -295,7 +378,8 @@ mod tests {
         assert!(value.get("temperature").is_none());
         assert_eq!(value["messages"].as_array().expect("messages").len(), 2);
         assert_eq!(value["messages"][0]["role"], "user");
-        assert_eq!(value["messages"][0]["content"], "First\n\nSecond");
+        assert_eq!(value["messages"][0]["content"][0]["text"], "First");
+        assert_eq!(value["messages"][0]["content"][1]["text"], "Second");
         assert_eq!(value["messages"][1]["role"], "assistant");
     }
 

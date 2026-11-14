@@ -47,7 +47,7 @@ pub use prompt::{
     title_from_prompt,
 };
 pub use settings::{AppSettings, Appearance, ProviderKeys, ReasoningEffort};
-pub use tool::{AgentMode, Tool, ToolCall, ToolResult};
+pub use tool::{AgentMode, Tool, ToolCall, ToolResult, ToolSpec, tool_specs};
 pub use usage::{CostEstimate, LongContextPricing, Pricing, TokenRates, Usage, format_tokens};
 
 /// Crate version, useful for the About panel and diagnostics.

@@ -21,14 +21,20 @@ fn request(model: ModelSelection, endpoint: &str, key: &str) -> ChatRequest {
             RequestMessage {
                 role: Role::User,
                 text: "Hello".to_owned(),
+                tool_calls: Vec::new(),
+                tool_call_id: None,
             },
             RequestMessage {
                 role: Role::Assistant,
                 text: "Hi".to_owned(),
+                tool_calls: Vec::new(),
+                tool_call_id: None,
             },
             RequestMessage {
                 role: Role::User,
                 text: "Continue".to_owned(),
+                tool_calls: Vec::new(),
+                tool_call_id: None,
             },
         ],
     )
@@ -260,6 +266,8 @@ async fn missing_keys_fail_before_any_request() {
         vec![RequestMessage {
             role: Role::User,
             text: "Hello".to_owned(),
+            tool_calls: Vec::new(),
+            tool_call_id: None,
         }],
     )
     .with_endpoint(server.uri());

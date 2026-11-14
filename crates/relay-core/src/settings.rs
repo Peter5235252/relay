@@ -144,6 +144,10 @@ pub struct AppSettings {
     pub mono_font_family: String,
     /// Base UI font size in pixels.
     pub font_size: f32,
+    /// Primary accent color (hex).
+    pub primary_color: String,
+    /// Secondary accent color (hex).
+    pub accent_color: String,
     /// User-authored instructions appended to the active personality preset.
     pub custom_instructions: String,
     /// Active built-in or user preset id.
@@ -179,6 +183,8 @@ impl Default for AppSettings {
             font_family: "Fira Sans".to_owned(),
             mono_font_family: "DejaVu Sans Mono".to_owned(),
             font_size: 15.0,
+            primary_color: "#18181b".to_owned(),
+            accent_color: "#3b82f6".to_owned(),
             custom_instructions: String::new(),
             active_preset_id: "balanced".to_owned(),
             show_thinking: true,
@@ -213,6 +219,12 @@ impl AppSettings {
         }
         if self.mono_font_family.trim().is_empty() {
             self.mono_font_family = "DejaVu Sans Mono".to_owned();
+        }
+        if self.primary_color.trim().is_empty() {
+            self.primary_color = "#18181b".to_owned();
+        }
+        if self.accent_color.trim().is_empty() {
+            self.accent_color = "#3b82f6".to_owned();
         }
         self.ollama_base_url = normalize_url(&self.ollama_base_url);
         self.local_base_url = normalize_url(&self.local_base_url);

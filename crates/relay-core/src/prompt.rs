@@ -9,6 +9,10 @@ pub struct RequestMessage {
     pub role: Role,
     /// Visible text. Reasoning blocks are never included.
     pub text: String,
+    /// Tool calls emitted by an assistant turn.
+    pub tool_calls: Vec<crate::ToolCall>,
+    /// Tool-call id this message is responding to.
+    pub tool_call_id: Option<String>,
 }
 
 /// Convert canonical messages to request turns.
@@ -29,6 +33,8 @@ pub fn request_history(messages: &[ChatMessage]) -> Vec<RequestMessage> {
         turns.push(RequestMessage {
             role: message.role,
             text,
+            tool_calls: Vec::new(),
+            tool_call_id: None,
         });
     }
     turns
@@ -134,6 +140,7 @@ pub fn conversation_markdown(title: &str, messages: &[ChatMessage]) -> String {
                 out.push_str(&format!("## Relay · {model}\n\n"));
             }
             Role::System => out.push_str("## System\n\n"),
+            Role::Tool => out.push_str("## Tool\n\n"),
         }
         let thinking = message.thinking();
         if !thinking.trim().is_empty() {
@@ -178,18 +185,26 @@ mod tests {
             RequestMessage {
                 role: Role::Assistant,
                 text: "old assistant".to_owned(),
+                tool_calls: Vec::new(),
+                tool_call_id: None,
             },
             RequestMessage {
                 role: Role::User,
                 text: "old user".repeat(50),
+                tool_calls: Vec::new(),
+                tool_call_id: None,
             },
             RequestMessage {
                 role: Role::Assistant,
                 text: "new assistant".repeat(50),
+                tool_calls: Vec::new(),
+                tool_call_id: None,
             },
             RequestMessage {
                 role: Role::User,
                 text: "newest question".to_owned(),
+                tool_calls: Vec::new(),
+                tool_call_id: None,
             },
         ];
         let fitted = fit_history(turns, 400, 100, None);
@@ -205,6 +220,8 @@ mod tests {
         let turns = vec![RequestMessage {
             role: Role::User,
             text: "x".repeat(100_000),
+            tool_calls: Vec::new(),
+            tool_call_id: None,
         }];
         let fitted = fit_history(turns, 1_000, 100, None);
         assert_eq!(fitted.len(), 1);

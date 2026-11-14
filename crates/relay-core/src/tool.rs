@@ -58,16 +58,72 @@ impl Tool {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolCall {
     pub id: String,
     pub name: String,
     pub arguments: serde_json::Value,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolResult {
     pub call_id: String,
     pub output: String,
     pub is_error: bool,
+}
+
+/// JSON-schema description of a callable tool.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolSpec {
+    pub name: String,
+    pub description: String,
+    pub parameters: serde_json::Value,
+}
+
+/// Build the list of tool specs for the given agent mode.
+pub fn tool_specs(mode: AgentMode) -> Vec<ToolSpec> {
+    let mut specs = vec![
+        ToolSpec {
+            name: "read_file".into(),
+            description: "Read the contents of a file on the user's machine.".into(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": { "path": {"type":"string","description":"Absolute or relative file path"} },
+                "required": ["path"]
+            }),
+        },
+        ToolSpec {
+            name: "list_dir".into(),
+            description: "List entries in a directory.".into(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": { "path": {"type":"string","description":"Directory path"} },
+                "required": ["path"]
+            }),
+        },
+        ToolSpec {
+            name: "run_command".into(),
+            description: "Run a shell command and return its output.".into(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": { "command": {"type":"string","description":"Shell command to execute"} },
+                "required": ["command"]
+            }),
+        },
+    ];
+    if mode.allows_writes() {
+        specs.push(ToolSpec {
+            name: "write_file".into(),
+            description: "Write text content to a file (creates or overwrites).".into(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "path": {"type":"string"},
+                    "content": {"type":"string"}
+                },
+                "required": ["path","content"]
+            }),
+        });
+    }
+    specs
 }

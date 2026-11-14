@@ -32,7 +32,7 @@ use tokio_util::sync::CancellationToken;
 
 pub use crate::error::ProviderError;
 pub use crate::request::{ApiKey, ChatRequest};
-pub use relay_core::{ModelSelection, Provider, ReasoningEffort, RequestMessage, Role, Usage};
+pub use relay_core::{ModelSelection, Provider, ReasoningEffort, RequestMessage, Role, ToolCall, Usage};
 
 /// The base URL of the Gemini Developer API.
 pub const GEMINI_BASE_URL: &str = "https://generativelanguage.googleapis.com";
@@ -52,6 +52,8 @@ pub enum StreamEvent {
     Thinking(String),
     /// Token usage, normally sent once at the end of the response.
     Usage(Usage),
+    /// The model requested a tool call.
+    ToolCall(ToolCall),
     /// The response finished normally.
     Done {
         /// Provider-specific finish reason, when reported.

@@ -91,6 +91,7 @@ fn main() -> ExitCode {
         .run(move |cx| {
             gpui_kit::init(cx);
             theme::install_typography(cx, &settings);
+            theme::apply_colors(&settings, cx);
 
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::centered(size(px(1280.), px(840.)), cx)),
@@ -103,7 +104,9 @@ fn main() -> ExitCode {
             let store = store.clone();
             let handle = handle.clone();
             cx.activate(true);
+            let settings_for_window = settings.clone();
             match gpui_kit::open_window(options, cx, move |window, cx| {
+                theme::apply_colors(&settings_for_window, cx);
                 theme::apply_appearance(appearance, window, cx);
                 let store = store.clone();
                 let handle = handle.clone();

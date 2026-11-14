@@ -19,15 +19,26 @@ pub(crate) fn body(request: &ChatRequest) -> Value {
         messages.push(json!({ "role": "system", "content": system }));
     }
     for message in &request.messages {
-        if message.text.trim().is_empty() {
+        if message.text.trim().is_empty() && message.tool_calls.is_empty() && message.tool_call_id.is_none() {
             continue;
         }
         let role = match message.role {
             relay_core::Role::Assistant => "assistant",
+            relay_core::Role::Tool => "tool",
             relay_core::Role::System => "system",
             relay_core::Role::User => "user",
         };
-        messages.push(json!({ "role": role, "content": message.text }));
+        let mut msg = json!({ "role": role, "content": message.text });
+        if !message.tool_calls.is_empty() {
+            let tcs: Vec<Value> = message.tool_calls.iter().map(|c| json!({
+                "function": { "name": c.name, "arguments": c.arguments }
+            })).collect();
+            msg["tool_calls"] = Value::Array(tcs);
+        }
+        if let Some(id) = &message.tool_call_id {
+            msg["tool_call_id"] = json!(id);
+        }
+        messages.push(msg);
     }
 
     let mut options = Map::new();
@@ -45,6 +56,13 @@ pub(crate) fn body(request: &ChatRequest) -> Value {
     map.insert("model".to_owned(), json!(request.model.api_id));
     map.insert("messages".to_owned(), Value::Array(messages));
     map.insert("stream".to_owned(), json!(true));
+    if !request.tools.is_empty() {
+        let tools: Vec<Value> = request.tools.iter().map(|t| json!({
+            "type": "function",
+            "function": { "name": t.name, "description": t.description, "parameters": t.parameters }
+        })).collect();
+        map.insert("tools".to_owned(), Value::Array(tools));
+    }
     map.insert("options".to_owned(), Value::Object(options));
     map.insert("keep_alive".to_owned(), json!("10m"));
     if let Some(level) = request.reasoning.ollama_level() {
@@ -144,7 +162,7 @@ async fn apply_line(
         });
     }
 
-    if let Some(message) = value.get("message") {
+        if let Some(message) = value.get("message") {
         if let Some(thinking) = message.get("thinking").and_then(Value::as_str)
             && !thinking.is_empty()
         {
@@ -154,6 +172,14 @@ async fn apply_line(
             && !content.is_empty()
         {
             emit(events, StreamEvent::Text(content.to_owned())).await?;
+        }
+        if let Some(tcs) = message.get("tool_calls").and_then(Value::as_array) {
+            for (i, tc) in tcs.iter().enumerate() {
+                let name = tc.pointer("/function/name").and_then(Value::as_str).unwrap_or("").to_owned();
+                let args = tc.pointer("/function/arguments").cloned().unwrap_or(Value::Object(Map::new()));
+                let id = tc.get("id").and_then(Value::as_str).map(str::to_owned).unwrap_or_else(|| format!("call_{}", i));
+                emit(events, StreamEvent::ToolCall(relay_core::ToolCall { id, name, arguments: args })).await?;
+            }
         }
     }
 
@@ -241,14 +267,20 @@ mod tests {
                 RequestMessage {
                     role: Role::User,
                     text: "Hello".to_owned(),
+                    tool_calls: Vec::new(),
+                    tool_call_id: None,
                 },
                 RequestMessage {
                     role: Role::Assistant,
                     text: "Hi".to_owned(),
+                    tool_calls: Vec::new(),
+                    tool_call_id: None,
                 },
                 RequestMessage {
                     role: Role::User,
                     text: "Continue".to_owned(),
+                    tool_calls: Vec::new(),
+                    tool_call_id: None,
                 },
             ],
         )
