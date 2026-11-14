@@ -12,10 +12,8 @@
 
 #![forbid(unsafe_code)]
 
-mod demo;
 mod error;
 mod store;
 
-pub use demo::seed_demo;
 pub use error::{Result, StoreError};
 pub use store::{AppendOutcome, Store, StoreStats, default_data_dir, default_database_path};

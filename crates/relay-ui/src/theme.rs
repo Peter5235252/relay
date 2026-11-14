@@ -16,15 +16,12 @@ pub fn apply_appearance(appearance: Appearance, window: &mut Window, cx: &mut Ap
 }
 
 /// Install Relay's typography once, after the kit theme exists.
-pub fn install_typography(cx: &mut App) {
+pub fn install_typography(cx: &mut App, settings: &relay_core::AppSettings) {
     Theme::update(cx, |theme| {
-        // Both families ship with most Linux desktops or are installed with the
-        // app's recommended font package. GPUI falls back safely if they are
-        // missing.
-        theme.font_family = "Fira Sans".into();
-        theme.font_size = px(15.);
-        theme.mono_font_family = "DejaVu Sans Mono".into();
-        theme.mono_font_size = px(13.);
+        theme.font_family = settings.font_family.clone().into();
+        theme.font_size = px(settings.font_size);
+        theme.mono_font_family = settings.mono_font_family.clone().into();
+        theme.mono_font_size = px((settings.font_size - 2.0).max(10.0));
         theme.radius = px(8.);
         theme.radius_lg = px(12.);
     });

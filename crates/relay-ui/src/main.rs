@@ -23,7 +23,6 @@ Relay — one conversation, every frontier model.
 Usage: relay [OPTIONS]
 
 Options:
-  --demo       Use an in-memory database with sample conversations
   --version    Print the version and exit
   -h, --help   Print this help and exit
 
@@ -37,10 +36,8 @@ Environment:
 ";
 
 fn main() -> ExitCode {
-    let mut demo = false;
-    for argument in std::env::args().skip(1) {
+    if let Some(argument) = std::env::args().nth(1) {
         match argument.as_str() {
-            "--demo" => demo = true,
             "--version" | "-V" => {
                 println!("relay {}", env!("CARGO_PKG_VERSION"));
                 return ExitCode::SUCCESS;
@@ -77,39 +74,22 @@ fn main() -> ExitCode {
     };
     let handle = runtime.handle().clone();
 
-    let store = if demo {
-        let store = match Store::open_in_memory() {
-            Ok(store) => store,
-            Err(error) => {
-                eprintln!("Relay could not create the demo database: {error}");
-                return ExitCode::FAILURE;
-            }
-        };
-        if let Err(error) = relay_store::seed_demo(&store) {
-            eprintln!("Relay could not seed the demo data: {error}");
+    let store = match Store::open_default() {
+        Ok(store) => store,
+        Err(error) => {
+            eprintln!("Relay could not open its database: {error}");
             return ExitCode::FAILURE;
-        }
-        store
-    } else {
-        match Store::open_default() {
-            Ok(store) => store,
-            Err(error) => {
-                eprintln!("Relay could not open its database: {error}");
-                return ExitCode::FAILURE;
-            }
         }
     };
 
-    let appearance = store
-        .load_settings()
-        .map(|settings| settings.appearance)
-        .unwrap_or_default();
+    let settings = store.load_settings().unwrap_or_default();
+    let appearance = settings.appearance;
 
     gpui_kit::application()
         .with_assets(gpui_kit::assets::AllAssets)
         .run(move |cx| {
             gpui_kit::init(cx);
-            theme::install_typography(cx);
+            theme::install_typography(cx, &settings);
 
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::centered(size(px(1280.), px(840.)), cx)),

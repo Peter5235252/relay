@@ -264,14 +264,3 @@ fn stats_count_conversations_messages_and_tokens() {
     assert_eq!(stats.messages, 2);
     assert_eq!(stats.tokens, 150);
 }
-
-#[test]
-fn demo_data_is_populated_and_searchable() {
-    let store = store();
-    let main = relay_store::seed_demo(&store).expect("seed demo");
-    assert!(!store.list_conversations().expect("list").is_empty());
-    let messages = store.messages(&main).expect("demo messages");
-    assert!(messages.len() >= 4);
-    let hits = store.search_conversations("tantivy").expect("search");
-    assert!(hits.iter().any(|hit| hit.id == main));
-}

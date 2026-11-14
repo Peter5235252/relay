@@ -34,7 +34,7 @@ pub enum SettingsEvent {
     /// Return to the chat without saving.
     Close,
     /// Preferences were saved.
-    Saved(AppSettings),
+    Saved(Box<AppSettings>),
     /// A credential was added or removed.
     KeysChanged,
     /// All conversations were deleted.
@@ -264,7 +264,7 @@ impl SettingsView {
             );
             return;
         }
-        cx.emit(SettingsEvent::Saved(self.settings.clone()));
+        cx.emit(SettingsEvent::Saved(Box::new(self.settings.clone())));
         self.stats = self.store.stats().unwrap_or_default();
         cx.notify();
     }
@@ -450,7 +450,7 @@ impl SettingsView {
                 if self.settings.active_preset_id == preset.id {
                     self.settings.active_preset_id = "balanced".to_owned();
                     let _ = self.store.save_settings(&self.settings);
-                    cx.emit(SettingsEvent::Saved(self.settings.clone()));
+                    cx.emit(SettingsEvent::Saved(Box::new(self.settings.clone())));
                 }
                 self.preset_selected = None;
                 self.reload_presets();
@@ -474,7 +474,7 @@ impl SettingsView {
         self.settings.active_preset_id = id;
         match self.store.save_settings(&self.settings) {
             Ok(()) => {
-                cx.emit(SettingsEvent::Saved(self.settings.clone()));
+                cx.emit(SettingsEvent::Saved(Box::new(self.settings.clone())));
                 window.push_notification("Active preset updated", cx);
                 cx.notify();
             }

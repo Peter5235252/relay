@@ -453,7 +453,7 @@ impl RelayApp {
                         cx.notify();
                     }
                     SettingsEvent::Saved(settings) => {
-                        this.apply_settings(settings.clone(), window, cx);
+                        this.apply_settings(settings.as_ref().clone(), window, cx);
                     }
                     SettingsEvent::KeysChanged => {
                         this.cloud_keys_ready = Provider::CLOUD

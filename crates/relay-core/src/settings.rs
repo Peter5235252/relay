@@ -127,7 +127,31 @@ impl Appearance {
     }
 }
 
-/// Non-secret application preferences, persisted in SQLite.
+/// Agent operating mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum AgentMode {
+    /// Read-only: inspect files and plan, never mutate.
+    #[default]
+    Plan,
+    /// Build: may write files and run commands.
+    Build,
+}
+
+impl AgentMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Plan => "plan",
+            Self::Build => "build",
+        }
+    }
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Plan => "Plan (read-only)",
+            Self::Build => "Build (can write)",
+        }
+    }
+}
 ///
 /// API keys are deliberately not part of this type. They live in the OS
 /// keyring with environment-variable fallback; see [`ProviderKeys`].
@@ -138,6 +162,14 @@ pub struct AppSettings {
     pub default_model: String,
     /// Color scheme.
     pub appearance: Appearance,
+    /// Agent operating mode for terminal tools.
+    pub agent_mode: AgentMode,
+    /// UI font family.
+    pub font_family: String,
+    /// Monospace font family for code.
+    pub mono_font_family: String,
+    /// Base UI font size in pixels.
+    pub font_size: f32,
     /// User-authored instructions appended to the active personality preset.
     pub custom_instructions: String,
     /// Active built-in or user preset id.
@@ -169,6 +201,10 @@ impl Default for AppSettings {
         Self {
             default_model: DEFAULT_MODEL_SLUG.to_owned(),
             appearance: Appearance::System,
+            agent_mode: AgentMode::Plan,
+            font_family: "Fira Sans".to_owned(),
+            mono_font_family: "DejaVu Sans Mono".to_owned(),
+            font_size: 15.0,
             custom_instructions: String::new(),
             active_preset_id: "balanced".to_owned(),
             show_thinking: true,
@@ -197,6 +233,13 @@ impl AppSettings {
         }
         self.temperature = self.temperature.clamp(0.0, 2.0);
         self.max_output_tokens = self.max_output_tokens.min(1_000_000);
+        self.font_size = self.font_size.clamp(11.0, 24.0);
+        if self.font_family.trim().is_empty() {
+            self.font_family = "Fira Sans".to_owned();
+        }
+        if self.mono_font_family.trim().is_empty() {
+            self.mono_font_family = "DejaVu Sans Mono".to_owned();
+        }
         self.ollama_base_url = normalize_url(&self.ollama_base_url);
         self.local_base_url = normalize_url(&self.local_base_url);
         self.ollama_model = self.ollama_model.trim().to_owned();
