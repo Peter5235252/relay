@@ -64,6 +64,11 @@ pub struct ChatState {
     pub(crate) expanded: HashSet<String>,
     pub(crate) scroll: gpui_kit::ScrollHandle,
     pub(crate) presets: Vec<PersonalityPreset>,
+    pub(crate) terminal_open: bool,
+    pub(crate) terminal: Option<crate::terminal::ShellSession>,
+    pub(crate) terminal_input: Entity<InputState>,
+    pub(crate) terminal_scroll: gpui_kit::ScrollHandle,
+    pub(crate) terminal_task: Option<Task<()>>,
 }
 
 impl ChatState {
@@ -161,6 +166,8 @@ impl RelayApp {
             window,
             cx,
         );
+        let terminal_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Run a command in your shell…"));
 
         let mut app = Self {
             store,
@@ -186,6 +193,11 @@ impl RelayApp {
                 expanded: HashSet::new(),
                 scroll: gpui_kit::ScrollHandle::new(),
                 presets,
+                terminal_open: false,
+                terminal: None,
+                terminal_input,
+                terminal_scroll: gpui_kit::ScrollHandle::new(),
+                terminal_task: None,
             },
             settings_view: None,
             stream: None,
@@ -269,6 +281,17 @@ impl RelayApp {
         self.attach_model_subscription(window, cx);
         self.attach_reasoning_subscription(window, cx);
         self.attach_approval_subscription(window, cx);
+
+        let terminal_input = self.chat.terminal_input.clone();
+        self._subscriptions.push(cx.subscribe_in(
+            &terminal_input,
+            window,
+            |this, _, event, window, cx| {
+                if let gpui_kit::component::input::InputEvent::PressEnter { .. } = event {
+                    this.send_terminal_command(window, cx);
+                }
+            },
+        ));
 
         let search = self.sidebar.search.clone();
         self._subscriptions
@@ -473,6 +496,86 @@ impl RelayApp {
             let _ = req.respond.send(allow);
             cx.notify();
         }
+    }
+
+    pub(crate) fn toggle_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.chat.terminal_open = !self.chat.terminal_open;
+        if self.chat.terminal_open {
+            if self.chat.terminal.is_none() {
+                match crate::terminal::ShellSession::spawn(24, 100) {
+                    Ok(session) => {
+                        self.chat.terminal = Some(session);
+                        self.start_terminal_pump(cx);
+                    }
+                    Err(err) => {
+                        self.notice = Some(format!("Could not start terminal: {err}"));
+                        self.chat.terminal_open = false;
+                    }
+                }
+            }
+            self.chat
+                .terminal_input
+                .update(cx, |s, cx| s.focus(window, cx));
+        }
+        cx.notify();
+    }
+
+    fn start_terminal_pump(&mut self, cx: &mut Context<Self>) {
+        let Some(term) = self.chat.terminal.as_ref() else {
+            return;
+        };
+        let rx = term.events.clone();
+        let task = cx.spawn(async move |weak, cx| {
+            while let Ok(event) = rx.recv().await {
+                let keep = weak
+                    .update(cx, |this, cx| {
+                        match event {
+                            crate::terminal::ShellEvent::Output(chunk) => {
+                                if let Some(t) = this.chat.terminal.as_mut() {
+                                    t.push_output(&chunk);
+                                }
+                                this.chat.terminal_scroll.scroll_to_bottom();
+                            }
+                            crate::terminal::ShellEvent::Exited => {
+                                if let Some(t) = this.chat.terminal.as_mut() {
+                                    t.push_output("\r\n[process exited]\r\n");
+                                }
+                                this.chat.terminal_task = None;
+                            }
+                        }
+                        cx.notify();
+                    })
+                    .is_ok();
+                if !keep {
+                    break;
+                }
+            }
+        });
+        self.chat.terminal_task = Some(task);
+    }
+
+    pub(crate) fn send_terminal_command(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let cmd = self.chat.terminal_input.read(cx).value().to_string();
+        if let Some(t) = self.chat.terminal.as_mut() {
+            let mut data = cmd;
+            if !data.ends_with('\n') {
+                data.push('\n');
+            }
+            if let Err(err) = t.write(&data) {
+                t.push_output(&format!("\r\n[write error: {err}]\r\n"));
+            }
+        }
+        self.chat
+            .terminal_input
+            .update(cx, |s, cx| s.set_value("", window, cx));
+        cx.notify();
+    }
+
+    pub(crate) fn close_terminal(&mut self, cx: &mut Context<Self>) {
+        self.chat.terminal_task = None;
+        self.chat.terminal = None;
+        self.chat.terminal_open = false;
+        cx.notify();
     }
 
     pub(crate) fn toggle_agent_mode(&mut self, _window: &mut Window, cx: &mut Context<Self>) {

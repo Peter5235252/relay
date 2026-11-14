@@ -787,6 +787,79 @@ impl RelayApp {
                                 ),
                         )
                     })
+                    .when(self.chat.terminal_open, |this| {
+                        let output = self
+                            .chat
+                            .terminal
+                            .as_ref()
+                            .map(|t| t.output.clone())
+                            .unwrap_or_default();
+                        let term_input = self.chat.terminal_input.clone();
+                        let term_scroll = self.chat.terminal_scroll.clone();
+                        this.child(
+                            h_flex().justify_end().child(
+                                v_flex()
+                                    .w(px(560.))
+                                    .h(px(240.))
+                                    .rounded(theme.radius_lg)
+                                    .border_1()
+                                    .border_color(theme.border)
+                                    .bg(theme.background)
+                                    .overflow_hidden()
+                                    .child(
+                                        h_flex()
+                                            .justify_between()
+                                            .items_center()
+                                            .px_3()
+                                            .py_1()
+                                            .border_b_1()
+                                            .border_color(theme.border)
+                                            .child(
+                                                h_flex()
+                                                    .gap_2()
+                                                    .items_center()
+                                                    .child(Icon::new(IconName::Terminal).small().text_color(theme.muted_foreground))
+                                                    .child(div().text_xs().font_medium().child("Terminal")),
+                                            )
+                                            .child(
+                                                Button::new("close-terminal")
+                                                    .ghost()
+                                                    .xsmall()
+                                                    .icon(Icon::new(IconName::X))
+                                                    .on_click(cx.listener(|this, _, _window, cx| {
+                                                        this.close_terminal(cx);
+                                                    })),
+                                            ),
+                                    )
+                                    .child(
+                                        div()
+                                            .id("terminal-output")
+                                            .flex_1()
+                                            .min_h_0()
+                                            .overflow_y_scroll()
+                                            .track_scroll(&term_scroll)
+                                            .p_2()
+                                            .child(
+                                                div()
+                                                    .text_xs()
+                                                    .font_family(theme.mono_font_family.clone())
+                                                    .child(SharedString::from(if output.is_empty() {
+                                                        "Shell ready. Type a command below.".to_owned()
+                                                    } else {
+                                                        output
+                                                    })),
+                                            ),
+                                    )
+                                    .child(
+                                        div()
+                                            .border_t_1()
+                                            .border_color(theme.border)
+                                            .p_2()
+                                            .child(Input::new(&term_input).w_full().small()),
+                                    ),
+                            ),
+                        )
+                    })
                     .child(
                         v_flex()
                             .id("composer-box")
@@ -865,26 +938,41 @@ impl RelayApp {
                                                 model.name, hint
                                             ))),
                                     )
-                                    .child(if streaming {
-                                        Button::new("stop")
-                                            .danger()
-                                            .icon(Icon::new(IconName::Square))
-                                            .tooltip("Stop generating")
-                                            .on_click(cx.listener(|this, _, _, cx| {
-                                                this.stop_stream(cx);
-                                            }))
-                                            .into_any_element()
-                                    } else {
-                                        Button::new("send")
-                                            .primary()
-                                            .icon(Icon::new(IconName::ArrowUp))
-                                            .tooltip("Send")
-                                            .disabled(!can_send)
-                                            .on_click(cx.listener(|this, _, window, cx| {
-                                                this.send(window, cx);
-                                            }))
-                                            .into_any_element()
-                                    }),
+                                    .child(
+                                        h_flex()
+                                            .gap_1()
+                                            .items_center()
+                                            .child(
+                                                Button::new("toggle-terminal")
+                                                    .ghost()
+                                                    .small()
+                                                    .icon(Icon::new(IconName::Terminal))
+                                                    .tooltip(if self.chat.terminal_open { "Hide terminal" } else { "Open terminal" })
+                                                    .on_click(cx.listener(|this, _, window, cx| {
+                                                        this.toggle_terminal(window, cx);
+                                                    })),
+                                            )
+                                            .child(if streaming {
+                                                Button::new("stop")
+                                                    .danger()
+                                                    .icon(Icon::new(IconName::Square))
+                                                    .tooltip("Stop generating")
+                                                    .on_click(cx.listener(|this, _, _, cx| {
+                                                        this.stop_stream(cx);
+                                                    }))
+                                                    .into_any_element()
+                                            } else {
+                                                Button::new("send")
+                                                    .primary()
+                                                    .icon(Icon::new(IconName::ArrowUp))
+                                                    .tooltip("Send")
+                                                    .disabled(!can_send)
+                                                    .on_click(cx.listener(|this, _, window, cx| {
+                                                        this.send(window, cx);
+                                                    }))
+                                                    .into_any_element()
+                                            }),
+                                    ),
                             ),
                     ),
             )

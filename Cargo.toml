@@ -9,7 +9,7 @@ members = [
 default-members = ["crates/relay-ui"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.90"
 license = "Apache-2.0"
@@ -50,6 +50,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 zeroize = { version = "1", features = ["derive"] }
 flate2 = "1"
 tar = "0.4"
+portable-pty = "0.9"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
