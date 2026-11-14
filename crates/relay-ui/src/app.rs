@@ -19,9 +19,9 @@ use gpui_kit::{
     Styled as _, Subscription, Task, Window, div,
 };
 use relay_core::{
-    AppSettings, ChatMessage, ContentBlock, ConversationSummary, ModelSelection, PersonalityPreset, Provider,
-    ReasoningEffort, ReasoningKind, Role, compose_system_prompt, find_builtin_preset, fit_history,
-    request_history,
+    AppSettings, ChatMessage, ContentBlock, ConversationSummary, ModelSelection, PersonalityPreset,
+    Provider, ReasoningEffort, ReasoningKind, Role, compose_system_prompt, find_builtin_preset,
+    fit_history, request_history,
 };
 use relay_providers::{ChatRequest, StreamEvent};
 use relay_store::Store;
@@ -99,6 +99,8 @@ pub struct RelayApp {
     stream: Option<ActiveStream>,
     /// A dismissible message shown above the composer.
     pub(crate) notice: Option<String>,
+    /// Message currently being edited: (message_id, input_state).
+    pub(crate) editing: Option<(String, gpui_kit::Entity<InputState>)>,
     /// Whether any cloud provider has a usable credential.
     pub(crate) cloud_keys_ready: bool,
     model_subscription: Option<Subscription>,
@@ -168,6 +170,7 @@ impl RelayApp {
             settings_view: None,
             stream: None,
             notice: None,
+            editing: None,
             cloud_keys_ready: Provider::CLOUD
                 .iter()
                 .any(|provider| keys::source(*provider).is_set()),
@@ -183,10 +186,6 @@ impl RelayApp {
             app.load_conversation_data(&summary.id, window, cx);
             app.rebuild_model_select(window, cx);
             app.rebuild_reasoning_select(window, cx);
-        }
-
-        if std::env::var("RELAY_TEMP_TAB").is_ok() {
-            app.open_settings(window, cx);
         }
 
         app
@@ -576,6 +575,59 @@ impl RelayApp {
         self.messages.push(user);
         self.refresh_conversations(cx);
 
+        self.generate(conversation_id, window, cx);
+    }
+
+    pub(crate) fn edit_user_message(
+        &mut self,
+        message_id: String,
+        new_text: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.stream.is_some() {
+            window.push_notification(Notification::info("Stop the response first."), cx);
+            return;
+        }
+        let Some(conversation_id) = self.conversation_id.clone() else {
+            return;
+        };
+        if let Err(error) = self
+            .store
+            .update_message_text(&conversation_id, &message_id, &new_text)
+        {
+            window.push_notification(Notification::error(format!("{error}")), cx);
+            return;
+        }
+        if let Err(error) = self
+            .store
+            .delete_messages_after(&conversation_id, &message_id)
+        {
+            window.push_notification(Notification::error(format!("{error}")), cx);
+            return;
+        }
+        // update in-memory
+        if let Some(idx) = self.messages.iter().position(|m| m.id == message_id) {
+            if let Some(block) = self.messages[idx].blocks.first_mut() {
+                if let ContentBlock::Text { text } = block {
+                    *text = new_text.clone();
+                }
+            } else {
+                self.messages[idx].blocks = vec![ContentBlock::text(new_text.clone())];
+            }
+            self.messages.truncate(idx + 1);
+        }
+        self.refresh_conversations(cx);
+        self.generate(conversation_id, window, cx);
+    }
+
+    pub(crate) fn generate(
+        &mut self,
+        conversation_id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let model = self.current_model();
         let reasoning = if model.reasoning == ReasoningKind::None {
             ReasoningEffort::Off
         } else {
@@ -593,7 +645,18 @@ impl RelayApp {
             .find(|preset| preset.id == self.settings.active_preset_id)
             .cloned()
             .or_else(|| find_builtin_preset(&self.settings.active_preset_id));
-        let system = compose_system_prompt(preset.as_ref(), &self.settings.custom_instructions);
+        let mut custom = self.settings.custom_instructions.clone();
+        if let Ok(memories) = self.store.list_memories() {
+            if !memories.is_empty() {
+                custom.push_str("\n\nCross-session memory:\n");
+                for (_, content) in &memories {
+                    custom.push_str("- ");
+                    custom.push_str(content);
+                    custom.push('\n');
+                }
+            }
+        }
+        let system = compose_system_prompt(preset.as_ref(), &custom);
         request = request.with_system_prompt(system.clone());
         let history = fit_history(
             request_history(&self.messages),

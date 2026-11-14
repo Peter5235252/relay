@@ -70,12 +70,18 @@ pub(crate) fn body(request: &ChatRequest) -> Value {
         body.insert("system_instruction".to_owned(), json!(system));
     }
     if !request.tools.is_empty() {
-        let tools: Vec<Value> = request.tools.iter().map(|t| json!({
-            "type": "function",
-            "name": t.name,
-            "description": t.description,
-            "parameters": t.parameters,
-        })).collect();
+        let tools: Vec<Value> = request
+            .tools
+            .iter()
+            .map(|t| {
+                json!({
+                    "type": "function",
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": t.parameters,
+                })
+            })
+            .collect();
         body.insert("tools".to_owned(), Value::Array(tools));
     }
     Value::Object(body)

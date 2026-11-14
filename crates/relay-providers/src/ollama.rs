@@ -19,7 +19,10 @@ pub(crate) fn body(request: &ChatRequest) -> Value {
         messages.push(json!({ "role": "system", "content": system }));
     }
     for message in &request.messages {
-        if message.text.trim().is_empty() && message.tool_calls.is_empty() && message.tool_call_id.is_none() {
+        if message.text.trim().is_empty()
+            && message.tool_calls.is_empty()
+            && message.tool_call_id.is_none()
+        {
             continue;
         }
         let role = match message.role {
@@ -30,9 +33,15 @@ pub(crate) fn body(request: &ChatRequest) -> Value {
         };
         let mut msg = json!({ "role": role, "content": message.text });
         if !message.tool_calls.is_empty() {
-            let tcs: Vec<Value> = message.tool_calls.iter().map(|c| json!({
-                "function": { "name": c.name, "arguments": c.arguments }
-            })).collect();
+            let tcs: Vec<Value> = message
+                .tool_calls
+                .iter()
+                .map(|c| {
+                    json!({
+                        "function": { "name": c.name, "arguments": c.arguments }
+                    })
+                })
+                .collect();
             msg["tool_calls"] = Value::Array(tcs);
         }
         if let Some(id) = &message.tool_call_id {
@@ -162,7 +171,7 @@ async fn apply_line(
         });
     }
 
-        if let Some(message) = value.get("message") {
+    if let Some(message) = value.get("message") {
         if let Some(thinking) = message.get("thinking").and_then(Value::as_str)
             && !thinking.is_empty()
         {
@@ -175,10 +184,29 @@ async fn apply_line(
         }
         if let Some(tcs) = message.get("tool_calls").and_then(Value::as_array) {
             for (i, tc) in tcs.iter().enumerate() {
-                let name = tc.pointer("/function/name").and_then(Value::as_str).unwrap_or("").to_owned();
-                let args = tc.pointer("/function/arguments").cloned().unwrap_or(Value::Object(Map::new()));
-                let id = tc.get("id").and_then(Value::as_str).map(str::to_owned).unwrap_or_else(|| format!("call_{}", i));
-                emit(events, StreamEvent::ToolCall(relay_core::ToolCall { id, name, arguments: args })).await?;
+                let name = tc
+                    .pointer("/function/name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_owned();
+                let args = tc
+                    .pointer("/function/arguments")
+                    .cloned()
+                    .unwrap_or(Value::Object(Map::new()));
+                let id = tc
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| format!("call_{}", i));
+                emit(
+                    events,
+                    StreamEvent::ToolCall(relay_core::ToolCall {
+                        id,
+                        name,
+                        arguments: args,
+                    }),
+                )
+                .await?;
             }
         }
     }

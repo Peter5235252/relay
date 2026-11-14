@@ -7,14 +7,14 @@ use std::{
 use chrono::{DateTime, SecondsFormat, Utc};
 use directories::BaseDirs;
 use relay_core::{
-    AppSettings, ChatMessage, ConversationSummary, PersonalityPreset, Role, Usage, builtin_presets,
-    conversation_markdown, title_from_prompt,
+    AppSettings, ChatMessage, ContentBlock, ConversationSummary, PersonalityPreset, Role, Usage,
+    builtin_presets, conversation_markdown, title_from_prompt,
 };
 use rusqlite::{Connection, OptionalExtension, Row, params};
 
 use crate::{Result, StoreError};
 
-const SCHEMA_VERSION: i32 = 1;
+const SCHEMA_VERSION: i32 = 2;
 
 /// The result of appending a message.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -335,6 +335,68 @@ impl Store {
         })
     }
 
+    /// Update the text of a stored message.
+    pub fn update_message_text(
+        &self,
+        conversation_id: &str,
+        message_id: &str,
+        text: &str,
+    ) -> Result<()> {
+        let content_json = serde_json::to_string(&vec![ContentBlock::text(text)])?;
+        let conn = self.conn()?;
+        let changed = conn.execute(
+            "UPDATE messages SET content_json = ?3, search_text = ?4
+             WHERE conversation_id = ?1 AND id = ?2",
+            params![conversation_id, message_id, content_json, text],
+        )?;
+        if changed == 0 {
+            return Err(StoreError::NotFound(message_id.to_owned()));
+        }
+        Ok(())
+    }
+
+    /// Delete all messages after the given message (by position).
+    pub fn delete_messages_after(&self, conversation_id: &str, message_id: &str) -> Result<()> {
+        let conn = self.conn()?;
+        conn.execute(
+            "DELETE FROM messages WHERE conversation_id = ?1 AND position > \
+             (SELECT position FROM messages WHERE conversation_id = ?1 AND id = ?2)",
+            params![conversation_id, message_id],
+        )?;
+        Ok(())
+    }
+
+    /// Add a cross-session memory.
+    pub fn add_memory(&self, content: &str) -> Result<String> {
+        let id = uuid::Uuid::new_v4().to_string();
+        let now = timestamp();
+        let conn = self.conn()?;
+        conn.execute(
+            "INSERT INTO memories (id, content, created_at) VALUES (?1, ?2, ?3)",
+            params![id, content, now],
+        )?;
+        Ok(id)
+    }
+
+    /// List all memories.
+    pub fn list_memories(&self) -> Result<Vec<(String, String)>> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare("SELECT id, content FROM memories ORDER BY created_at DESC")?;
+        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
+    /// Delete a memory.
+    pub fn delete_memory(&self, id: &str) -> Result<()> {
+        let conn = self.conn()?;
+        conn.execute("DELETE FROM memories WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
     /// Export a conversation as Markdown.
     pub fn export_markdown(&self, conversation_id: &str) -> Result<String> {
         let conversation = self.conversation(conversation_id)?;
@@ -560,6 +622,9 @@ fn migrate(conn: &mut Connection) -> Result<()> {
     if version < 1 {
         tx.execute_batch(SCHEMA_V1)?;
     }
+    if version < 2 {
+        tx.execute_batch(SCHEMA_V2)?;
+    }
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     tx.commit()?;
     Ok(())
@@ -579,7 +644,7 @@ CREATE INDEX IF NOT EXISTS conversations_updated
 CREATE TABLE IF NOT EXISTS messages (
     id TEXT PRIMARY KEY NOT NULL,
     conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-    role TEXT NOT NULL CHECK (role IN ('system', 'user', 'assistant')),
+    role TEXT NOT NULL CHECK (role IN ('system', 'user', 'assistant', 'tool')),
     content_json TEXT NOT NULL,
     search_text TEXT NOT NULL DEFAULT '',
     model_slug TEXT,
@@ -627,6 +692,14 @@ CREATE TABLE IF NOT EXISTS presets (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS presets_order ON presets(builtin DESC, created_at ASC);
+"#;
+
+const SCHEMA_V2: &str = r#"
+CREATE TABLE IF NOT EXISTS memories (
+    id TEXT PRIMARY KEY NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 "#;
 
 fn sync_builtin_presets(conn: &Connection) -> Result<()> {

@@ -5,7 +5,7 @@ use gpui_kit::component::{
     ActiveTheme as _, Disableable as _, Icon, Sizable as _, StyledExt as _, WindowExt as _,
     button::{Button, ButtonVariants as _},
     h_flex,
-    input::{Textarea, TextareaState},
+    input::{Input, InputState, Textarea, TextareaState},
     select::Select,
     spinner::Spinner,
     text::TextView,
@@ -13,8 +13,8 @@ use gpui_kit::component::{
 };
 use gpui_kit::prelude::{FluentBuilder as _, StatefulInteractiveElement as _};
 use gpui_kit::{
-    AnyElement, ClipboardItem, Context, InteractiveElement as _, IntoElement, ParentElement as _,
-    SharedString, Styled as _, Window, div, px,
+    AnyElement, AppContext as _, ClipboardItem, Context, InteractiveElement as _, IntoElement,
+    ParentElement as _, SharedString, Styled as _, Window, div, px,
 };
 use relay_core::{ChatMessage, Role, format_tokens};
 
@@ -48,7 +48,8 @@ impl RelayApp {
                 .px_6()
                 .py_6()
                 .gap_8();
-            for message in &self.messages {
+            let messages: Vec<ChatMessage> = self.messages.clone();
+            for message in &messages {
                 column = column.child(self.render_message(message, cx));
             }
             div()
@@ -230,25 +231,103 @@ impl RelayApp {
             )
     }
 
-    fn render_message(&self, message: &ChatMessage, cx: &mut Context<Self>) -> AnyElement {
+    fn render_message(&mut self, message: &ChatMessage, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
+        if let Some((id, input)) = &self.editing
+            && id == &message.id
+        {
+            let input = input.clone();
+            let msg_id = message.id.clone();
+            return v_flex()
+                .w_full()
+                .items_end()
+                .gap_2()
+                .child(Input::new(&input).w(px(480.)))
+                .child(
+                    h_flex()
+                        .gap_2()
+                        .child(Button::new("save-edit").primary().label("Save").on_click(
+                            cx.listener(move |this, _, window, cx| {
+                                let text = input.read(cx).value().to_string();
+                                this.editing = None;
+                                this.edit_user_message(msg_id.clone(), text, window, cx);
+                            }),
+                        ))
+                        .child(Button::new("cancel-edit").ghost().label("Cancel").on_click(
+                            cx.listener(|this, _, _, cx| {
+                                this.editing = None;
+                                cx.notify();
+                            }),
+                        )),
+                )
+                .into_any_element();
+        }
         match message.role {
             Role::User => h_flex()
                 .w_full()
                 .justify_end()
+                .gap_2()
+                .items_end()
                 .child(
-                    div()
-                        .max_w(px(640.))
-                        .rounded(theme.radius_lg)
-                        .bg(theme.secondary)
-                        .text_color(theme.secondary_foreground)
-                        .px_4()
-                        .py_3()
+                    v_flex()
+                        .gap_1()
+                        .items_end()
+                        .child(
+                            h_flex()
+                                .gap_1()
+                                .child(
+                                    Button::new(SharedString::from(format!("copy-{}", message.id)))
+                                        .ghost()
+                                        .xsmall()
+                                        .icon(Icon::new(IconName::Copy))
+                                        .on_click(cx.listener({
+                                            let text = message.text();
+                                            move |_, _, _, cx| {
+                                                cx.write_to_clipboard(
+                                                    gpui_kit::ClipboardItem::new_string(
+                                                        text.clone(),
+                                                    ),
+                                                );
+                                            }
+                                        })),
+                                )
+                                .child(
+                                    Button::new(SharedString::from(format!("edit-{}", message.id)))
+                                        .ghost()
+                                        .xsmall()
+                                        .icon(Icon::new(IconName::Pencil))
+                                        .on_click(cx.listener({
+                                            let id = message.id.clone();
+                                            let text = message.text();
+                                            move |this, _, window, cx| {
+                                                let input = cx.new(|cx| {
+                                                    InputState::new(window, cx)
+                                                        .placeholder("Edit message…")
+                                                });
+                                                input.update(cx, |s, cx| {
+                                                    s.set_value(text.clone(), window, cx)
+                                                });
+                                                this.editing = Some((id.clone(), input));
+                                                cx.notify();
+                                            }
+                                        })),
+                                ),
+                        )
                         .child(
                             div()
-                                .text_sm()
-                                .whitespace_normal()
-                                .child(SharedString::from(message.text())),
+                                .max_w(px(640.))
+                                .rounded(theme.radius_lg)
+                                .bg(theme.secondary)
+                                .text_color(theme.secondary_foreground)
+                                .px_4()
+                                .py_3()
+                                .child(
+                                    TextView::markdown(
+                                        SharedString::from(format!("user-{}", message.id)),
+                                        SharedString::from(message.text()),
+                                    )
+                                    .selectable(true),
+                                ),
                         ),
                 )
                 .into_any_element(),
@@ -258,7 +337,10 @@ impl RelayApp {
                 .py_2()
                 .text_xs()
                 .text_color(theme.muted_foreground)
-                .child(SharedString::from(format!("Tool result: {}", message.text())))
+                .child(SharedString::from(format!(
+                    "Tool result: {}",
+                    message.text()
+                )))
                 .into_any_element(),
             Role::Assistant => {
                 let model = message

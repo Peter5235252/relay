@@ -85,7 +85,9 @@ fn messages(request: &ChatRequest) -> Vec<Value> {
                         "input": call.arguments,
                     }));
                 }
-                if content.is_empty() { continue; }
+                if content.is_empty() {
+                    continue;
+                }
                 out.push(json!({ "role": "assistant", "content": content }));
             }
             relay_core::Role::Tool => {
@@ -100,7 +102,9 @@ fn messages(request: &ChatRequest) -> Vec<Value> {
                 }));
             }
             _ => {
-                if turn.text.trim().is_empty() { continue; }
+                if turn.text.trim().is_empty() {
+                    continue;
+                }
                 // Merge consecutive user text into one turn content array.
                 if let Some(last) = out.last_mut()
                     && last.get("role").and_then(Value::as_str) == Some("user")
@@ -120,7 +124,10 @@ fn messages(request: &ChatRequest) -> Vec<Value> {
         }
     }
     // The Messages API requires the first turn to be from the user.
-    while out.first().is_some_and(|m| m.get("role").and_then(Value::as_str) == Some("assistant")) {
+    while out
+        .first()
+        .is_some_and(|m| m.get("role").and_then(Value::as_str) == Some("assistant"))
+    {
         out.remove(0);
     }
     out
@@ -214,8 +221,10 @@ pub(crate) async fn stream(
                                 }
                             }
                             Some("tool_use") => {
-                                tool_id = block.get("id").and_then(Value::as_str).map(str::to_owned);
-                                tool_name = block.get("name").and_then(Value::as_str).map(str::to_owned);
+                                tool_id =
+                                    block.get("id").and_then(Value::as_str).map(str::to_owned);
+                                tool_name =
+                                    block.get("name").and_then(Value::as_str).map(str::to_owned);
                                 tool_args.clear();
                                 if let Some(input) = block.get("input") {
                                     if !input.is_null() {
@@ -247,7 +256,8 @@ pub(crate) async fn stream(
                             }
                         }
                         Some("input_json_delta") => {
-                            if let Some(partial) = delta.get("partial_json").and_then(Value::as_str) {
+                            if let Some(partial) = delta.get("partial_json").and_then(Value::as_str)
+                            {
                                 tool_args.push_str(partial);
                             }
                         }
@@ -272,12 +282,17 @@ pub(crate) async fn stream(
                 }
                 "content_block_stop" => {
                     if let (Some(id), Some(name)) = (tool_id.take(), tool_name.take()) {
-                        let args = serde_json::from_str(&tool_args).unwrap_or(serde_json::json!({}));
-                        emit(events, StreamEvent::ToolCall(relay_core::ToolCall {
-                            id,
-                            name,
-                            arguments: args,
-                        })).await?;
+                        let args =
+                            serde_json::from_str(&tool_args).unwrap_or(serde_json::json!({}));
+                        emit(
+                            events,
+                            StreamEvent::ToolCall(relay_core::ToolCall {
+                                id,
+                                name,
+                                arguments: args,
+                            }),
+                        )
+                        .await?;
                         tool_args.clear();
                     }
                 }

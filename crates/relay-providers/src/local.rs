@@ -23,7 +23,10 @@ pub(crate) fn body(request: &ChatRequest) -> Value {
         messages.push(json!({ "role": "system", "content": system }));
     }
     for message in &request.messages {
-        if message.text.trim().is_empty() && message.tool_calls.is_empty() && message.tool_call_id.is_none() {
+        if message.text.trim().is_empty()
+            && message.tool_calls.is_empty()
+            && message.tool_call_id.is_none()
+        {
             continue;
         }
         match message.role {
@@ -157,11 +160,31 @@ pub(crate) async fn stream(
                     }
                     if let Some(tcs) = delta.get("tool_calls").and_then(Value::as_array) {
                         for (i, tc) in tcs.iter().enumerate() {
-                            let id = tc.get("id").and_then(Value::as_str).map(str::to_owned).unwrap_or_else(|| format!("call_{}", i));
-                            let name = tc.pointer("/function/name").and_then(Value::as_str).unwrap_or("").to_owned();
-                            let args_str = tc.pointer("/function/arguments").and_then(Value::as_str).unwrap_or("");
-                            let args = serde_json::from_str(args_str).unwrap_or(Value::Object(Map::new()));
-                            emit(events, StreamEvent::ToolCall(relay_core::ToolCall { id, name, arguments: args })).await?;
+                            let id = tc
+                                .get("id")
+                                .and_then(Value::as_str)
+                                .map(str::to_owned)
+                                .unwrap_or_else(|| format!("call_{}", i));
+                            let name = tc
+                                .pointer("/function/name")
+                                .and_then(Value::as_str)
+                                .unwrap_or("")
+                                .to_owned();
+                            let args_str = tc
+                                .pointer("/function/arguments")
+                                .and_then(Value::as_str)
+                                .unwrap_or("");
+                            let args =
+                                serde_json::from_str(args_str).unwrap_or(Value::Object(Map::new()));
+                            emit(
+                                events,
+                                StreamEvent::ToolCall(relay_core::ToolCall {
+                                    id,
+                                    name,
+                                    arguments: args,
+                                }),
+                            )
+                            .await?;
                         }
                     }
                 }

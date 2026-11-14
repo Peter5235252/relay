@@ -104,6 +104,8 @@ pub struct SettingsView {
     preset_description: Entity<InputState>,
     preset_instructions: Entity<TextareaState>,
     stats: StoreStats,
+    memories: Vec<(String, String)>,
+    memory_input: Entity<InputState>,
     scroll: gpui_kit::ScrollHandle,
 }
 
@@ -178,19 +180,18 @@ impl SettingsView {
         let preset_name = text_input(window, cx, "Preset name", "");
         let preset_description = text_input(window, cx, "One-line description", "");
         let preset_instructions = textarea(window, cx, "Instructions for this personality…", "");
+        let memory_input = text_input(window, cx, "Remember something across sessions…", "");
+        let memories = store.list_memories().unwrap_or_default();
+        let presets = store
+            .presets()
+            .unwrap_or_else(|_| relay_core::builtin_presets());
 
         Self {
             stats: store.stats().unwrap_or_default(),
+            memories,
             store,
             settings,
-            tab: std::env::var("RELAY_TEMP_TAB")
-                .ok()
-                .and_then(|name| {
-                    SettingsTab::ALL
-                        .into_iter()
-                        .find(|tab| tab.label().eq_ignore_ascii_case(&name))
-                })
-                .unwrap_or(SettingsTab::General),
+            tab: SettingsTab::General,
             default_model,
             appearance,
             reasoning,
@@ -208,6 +209,7 @@ impl SettingsView {
             preset_name,
             preset_description,
             preset_instructions,
+            memory_input,
             scroll: gpui_kit::ScrollHandle::new(),
         }
     }
@@ -1040,6 +1042,67 @@ impl SettingsView {
                                     })),
                             ),
                     ),
+            )
+            .child(section(
+                "Cross-session memory",
+                "Facts Relay remembers and includes in every conversation.",
+                &theme,
+            ))
+            .child(
+                card(&theme)
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .child(Input::new(&self.memory_input).flex_1())
+                            .child(Button::new("add-memory").primary().label("Add").on_click(
+                                cx.listener(|this, _, window, cx| {
+                                    let text = this.memory_input.read(cx).value().trim().to_owned();
+                                    if text.is_empty() {
+                                        return;
+                                    }
+                                    if let Err(e) = this.store.add_memory(&text) {
+                                        window.push_notification(
+                                            Notification::error(format!("{e}")),
+                                            cx,
+                                        );
+                                        return;
+                                    }
+                                    this.memory_input
+                                        .update(cx, |s, cx| s.set_value("", window, cx));
+                                    this.memories = this.store.list_memories().unwrap_or_default();
+                                    window.push_notification("Memory saved", cx);
+                                    cx.notify();
+                                }),
+                            )),
+                    )
+                    .children(self.memories.iter().map(|(id, content)| {
+                        let id = id.clone();
+                        h_flex()
+                            .w_full()
+                            .justify_between()
+                            .items_center()
+                            .py_1()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .flex_1()
+                                    .child(SharedString::from(content.clone())),
+                            )
+                            .child(
+                                Button::new(SharedString::from(format!("del-mem-{id}")))
+                                    .ghost()
+                                    .xsmall()
+                                    .icon(Icon::new(IconName::Trash))
+                                    .on_click(cx.listener(move |this, _, _window, cx| {
+                                        let _ = this.store.delete_memory(&id);
+                                        this.memories =
+                                            this.store.list_memories().unwrap_or_default();
+                                        cx.notify();
+                                    })),
+                            )
+                            .into_any_element()
+                    })),
             )
             .child(section(
                 "Danger zone",

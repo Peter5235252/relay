@@ -22,7 +22,10 @@ use crate::{OPENAI_BASE_URL, ProviderError, StreamEvent, emit};
 pub(crate) fn body(request: &ChatRequest) -> Value {
     let mut input: Vec<Value> = Vec::new();
     for message in &request.messages {
-        if message.text.trim().is_empty() && message.tool_calls.is_empty() && message.tool_call_id.is_none() {
+        if message.text.trim().is_empty()
+            && message.tool_calls.is_empty()
+            && message.tool_call_id.is_none()
+        {
             continue;
         }
         match message.role {
@@ -180,9 +183,13 @@ pub(crate) async fn stream(
                     if let Some(item) = value.get("item")
                         && item.get("type").and_then(Value::as_str) == Some("function_call")
                     {
-                        current_call_id = item.get("call_id").and_then(Value::as_str).map(str::to_owned)
+                        current_call_id = item
+                            .get("call_id")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned)
                             .or_else(|| item.get("id").and_then(Value::as_str).map(str::to_owned));
-                        current_call_name = item.get("name").and_then(Value::as_str).map(str::to_owned);
+                        current_call_name =
+                            item.get("name").and_then(Value::as_str).map(str::to_owned);
                         current_args.clear();
                     }
                 }
@@ -192,14 +199,24 @@ pub(crate) async fn stream(
                     }
                 }
                 "response.function_call_arguments.done" => {
-                    let args_str = value.get("arguments").and_then(Value::as_str).unwrap_or(&current_args).to_owned();
+                    let args_str = value
+                        .get("arguments")
+                        .and_then(Value::as_str)
+                        .unwrap_or(&current_args)
+                        .to_owned();
                     let args = serde_json::from_str(&args_str).unwrap_or(Value::Object(Map::new()));
-                    if let (Some(id), Some(name)) = (current_call_id.take(), current_call_name.take()) {
-                        emit(events, StreamEvent::ToolCall(relay_core::ToolCall {
-                            id,
-                            name,
-                            arguments: args,
-                        })).await?;
+                    if let (Some(id), Some(name)) =
+                        (current_call_id.take(), current_call_name.take())
+                    {
+                        emit(
+                            events,
+                            StreamEvent::ToolCall(relay_core::ToolCall {
+                                id,
+                                name,
+                                arguments: args,
+                            }),
+                        )
+                        .await?;
                     }
                     current_args.clear();
                 }
@@ -260,7 +277,9 @@ fn read_usage(value: &Value) -> Usage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use relay_core::{ModelSelection, ReasoningEffort, RequestMessage, Role, find_model, tool_specs};
+    use relay_core::{
+        ModelSelection, ReasoningEffort, RequestMessage, Role, find_model, tool_specs,
+    };
 
     fn request() -> ChatRequest {
         let model = ModelSelection::from_spec(find_model("gpt-6.1-sol").expect("model"));

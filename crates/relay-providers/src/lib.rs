@@ -32,7 +32,9 @@ use tokio_util::sync::CancellationToken;
 
 pub use crate::error::ProviderError;
 pub use crate::request::{ApiKey, ChatRequest};
-pub use relay_core::{ModelSelection, Provider, ReasoningEffort, RequestMessage, Role, ToolCall, Usage};
+pub use relay_core::{
+    ModelSelection, Provider, ReasoningEffort, RequestMessage, Role, ToolCall, Usage,
+};
 
 /// The base URL of the Gemini Developer API.
 pub const GEMINI_BASE_URL: &str = "https://generativelanguage.googleapis.com";

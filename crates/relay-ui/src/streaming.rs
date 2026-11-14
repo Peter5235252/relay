@@ -22,21 +22,42 @@ pub struct StartedStream {
 fn run_tool(call: &ToolCall, build: bool) -> String {
     match call.name.as_str() {
         "read_file" => {
-            let path = call.arguments.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            let path = call
+                .arguments
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             std::fs::read_to_string(path).unwrap_or_else(|e| format!("error: {e}"))
         }
         "list_dir" => {
-            let path = call.arguments.get("path").and_then(|v| v.as_str()).unwrap_or(".");
+            let path = call
+                .arguments
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or(".");
             match std::fs::read_dir(path) {
-                Ok(rd) => rd.filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().to_string()).collect::<Vec<_>>().join("\n"),
+                Ok(rd) => rd
+                    .filter_map(|e| e.ok())
+                    .map(|e| e.file_name().to_string_lossy().to_string())
+                    .collect::<Vec<_>>()
+                    .join("\n"),
                 Err(e) => format!("error: {e}"),
             }
         }
         "run_command" => {
-            let cmd = call.arguments.get("command").and_then(|v| v.as_str()).unwrap_or("");
+            let cmd = call
+                .arguments
+                .get("command")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             let out = Command::new("sh").arg("-c").arg(cmd).output();
             match out {
-                Ok(o) => format!("exit={}\nstdout:\n{}\nstderr:\n{}", o.status, String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr)),
+                Ok(o) => format!(
+                    "exit={}\nstdout:\n{}\nstderr:\n{}",
+                    o.status,
+                    String::from_utf8_lossy(&o.stdout),
+                    String::from_utf8_lossy(&o.stderr)
+                ),
                 Err(e) => format!("error: {e}"),
             }
         }
@@ -44,8 +65,16 @@ fn run_tool(call: &ToolCall, build: bool) -> String {
             if !build {
                 return "error: write_file not allowed in Plan mode".to_owned();
             }
-            let path = call.arguments.get("path").and_then(|v| v.as_str()).unwrap_or("");
-            let content = call.arguments.get("content").and_then(|v| v.as_str()).unwrap_or("");
+            let path = call
+                .arguments
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let content = call
+                .arguments
+                .get("content")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             match std::fs::write(path, content) {
                 Ok(_) => "written".to_owned(),
                 Err(e) => format!("error: {e}"),
@@ -72,9 +101,7 @@ pub fn start(handle: &Handle, request: ChatRequest) -> Result<StartedStream, Str
             let client2 = client.clone();
             let req = request.clone();
             let tok = token.clone();
-            let jh = tokio::spawn(async move {
-                client2.stream(&req, &prov_tx, &tok).await
-            });
+            let jh = tokio::spawn(async move { client2.stream(&req, &prov_tx, &tok).await });
 
             let mut tool_calls: Vec<ToolCall> = Vec::new();
             let mut assistant_text = String::new();
@@ -87,7 +114,9 @@ pub fn start(handle: &Handle, request: ChatRequest) -> Result<StartedStream, Str
                 }
                 let _ = events_tx.send(ev).await;
             }
-            let stream_result = jh.await.unwrap_or(Err(relay_providers::ProviderError::Cancelled));
+            let stream_result = jh
+                .await
+                .unwrap_or(Err(relay_providers::ProviderError::Cancelled));
             if let Err(e) = stream_result {
                 let _ = events_tx.close();
                 let _ = error_tx.send(e.to_string()).await;
@@ -106,7 +135,12 @@ pub fn start(handle: &Handle, request: ChatRequest) -> Result<StartedStream, Str
             // Execute tools and append results.
             for call in &tool_calls {
                 let output = run_tool(call, build);
-                let _ = events_tx.send(StreamEvent::Text(format!("\n[tool {}] {}\n", call.name, output))).await;
+                let _ = events_tx
+                    .send(StreamEvent::Text(format!(
+                        "\n[tool {}] {}\n",
+                        call.name, output
+                    )))
+                    .await;
                 request.messages.push(RequestMessage {
                     role: Role::Tool,
                     text: output,

@@ -2,8 +2,8 @@
 
 use gpui_kit::component::{Theme, ThemeMode};
 use gpui_kit::{App, Window, px};
-use relay_core::Appearance;
 use relay_core::AppSettings;
+use relay_core::Appearance;
 
 /// Apply the user's appearance preference, following the desktop for
 /// [`Appearance::System`].
