@@ -7,6 +7,7 @@ mod models;
 mod settings;
 mod sidebar;
 mod streaming;
+mod terminal;
 mod theme;
 
 use std::process::ExitCode;

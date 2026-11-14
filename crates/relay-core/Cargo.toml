@@ -11,11 +11,9 @@ description = "Provider-neutral conversation types, model catalog, prompt assemb
 [dependencies]
 chrono.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
-
-[dev-dependencies]
-serde_json.workspace = true
 
 [lints]
 workspace = true

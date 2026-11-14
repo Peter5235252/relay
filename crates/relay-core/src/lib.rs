@@ -29,6 +29,7 @@ mod model;
 mod preset;
 mod prompt;
 mod settings;
+mod tool;
 mod usage;
 
 pub use content::{ChatMessage, ContentBlock, Role};
@@ -46,6 +47,7 @@ pub use prompt::{
     title_from_prompt,
 };
 pub use settings::{AppSettings, Appearance, ProviderKeys, ReasoningEffort};
+pub use tool::{AgentMode, Tool, ToolCall, ToolResult};
 pub use usage::{CostEstimate, LongContextPricing, Pricing, TokenRates, Usage, format_tokens};
 
 /// Crate version, useful for the About panel and diagnostics.

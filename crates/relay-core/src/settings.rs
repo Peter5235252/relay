@@ -127,38 +127,12 @@ impl Appearance {
     }
 }
 
-/// Agent operating mode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum AgentMode {
-    /// Read-only: inspect files and plan, never mutate.
-    #[default]
-    Plan,
-    /// Build: may write files and run commands.
-    Build,
-}
+use crate::tool::AgentMode;
 
-impl AgentMode {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Plan => "plan",
-            Self::Build => "build",
-        }
-    }
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::Plan => "Plan (read-only)",
-            Self::Build => "Build (can write)",
-        }
-    }
-}
-///
-/// API keys are deliberately not part of this type. They live in the OS
-/// keyring with environment-variable fallback; see [`ProviderKeys`].
+/// Non-secret application preferences, persisted in SQLite.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppSettings {
-    /// Model used for new conversations.
     pub default_model: String,
     /// Color scheme.
     pub appearance: Appearance,
