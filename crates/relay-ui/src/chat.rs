@@ -111,6 +111,16 @@ impl RelayApp {
                                         this.persist_settings();
                                         cx.notify();
                                     })),
+                            )
+                            .child(
+                                Button::new("mode-info")
+                                    .ghost()
+                                    .small()
+                                    .icon(Icon::new(IconName::Info))
+                                    .tooltip(
+                                        "Chat: daily chatting and brainstorming, no tools, no terminal — like ChatGPT. \
+                                         Work: agentic mode with terminal tools, MCP servers, and file operations.",
+                                    ),
                             ),
                     )
                     .child(
