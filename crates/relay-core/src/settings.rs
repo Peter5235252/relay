@@ -252,6 +252,9 @@ pub struct AppSettings {
     pub bundled_context_size: u32,
     /// Whether the welcome panel has been dismissed.
     pub onboarding_complete: bool,
+    /// Interaction mode: "chat" (no tools) or "work" (tools enabled).
+    #[serde(default = "default_interaction_mode")]
+    pub interaction_mode: String,
     /// Configured external MCP (Model Context Protocol) servers (stdio).
     #[serde(default)]
     pub mcp_servers: Vec<McpServerConfig>,
@@ -285,6 +288,7 @@ impl Default for AppSettings {
             bundled_model_variant: "Nemotron-3.5-Bolt-E4B-Q4_K_M".to_owned(),
             bundled_context_size: 4096,
             onboarding_complete: false,
+            interaction_mode: "work".to_owned(),
             mcp_servers: Vec::new(),
             last_memory_summary_at: 0,
         }
@@ -324,6 +328,9 @@ impl AppSettings {
         if self.bundled_context_size > 32768 {
             self.bundled_context_size = 32768;
         }
+        if self.interaction_mode != "chat" && self.interaction_mode != "work" {
+            self.interaction_mode = "work".to_owned();
+        }
         if self.active_preset_id.trim().is_empty() {
             self.active_preset_id = "balanced".to_owned();
         }
@@ -332,6 +339,10 @@ impl AppSettings {
 
 fn default_bundled_context_size() -> u32 {
     4096
+}
+
+fn default_interaction_mode() -> String {
+    "work".to_owned()
 }
 
 fn normalize_url(url: &str) -> String {

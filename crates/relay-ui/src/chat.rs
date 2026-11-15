@@ -83,6 +83,32 @@ impl RelayApp {
                             .child(SharedString::from(transcript_title)),
                     )
                     .child(
+                        h_flex()
+                            .gap_1()
+                            .child(
+                                Button::new("mode-chat")
+                                    .small()
+                                    .label("Chat")
+                                    .when(self.settings.interaction_mode == "chat", |b| b.primary())
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.settings.interaction_mode = "chat".to_owned();
+                                        this.persist_settings();
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
+                                Button::new("mode-work")
+                                    .small()
+                                    .label("Work")
+                                    .when(self.settings.interaction_mode == "work", |b| b.primary())
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.settings.interaction_mode = "work".to_owned();
+                                        this.persist_settings();
+                                        cx.notify();
+                                    })),
+                            ),
+                    )
+                    .child(
                         div()
                             .w(px(244.))
                             .flex_shrink_0()

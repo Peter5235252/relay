@@ -912,7 +912,7 @@ impl RelayApp {
         cx.notify();
     }
 
-    fn persist_settings(&self) {
+    pub(crate) fn persist_settings(&self) {
         if let Err(error) = self.store.save_settings(&self.settings) {
             tracing::warn!(%error, "could not save settings");
         }
@@ -1072,7 +1072,9 @@ impl RelayApp {
             .with_reasoning(reasoning)
             .with_temperature(self.settings.temperature)
             .with_max_output_tokens(self.settings.max_output_tokens)
-            .with_tools({
+            .with_tools(if self.settings.interaction_mode == "chat" {
+                Vec::new()
+            } else {
                 let mut specs = relay_core::tool_specs(self.settings.agent_mode);
                 specs.extend(crate::mcp::global_tools());
                 specs
