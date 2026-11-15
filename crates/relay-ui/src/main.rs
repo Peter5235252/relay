@@ -5,6 +5,7 @@ mod bundled;
 mod chat;
 mod fonts;
 mod keys;
+mod mcp;
 mod models;
 mod settings;
 mod sidebar;
@@ -27,8 +28,10 @@ Relay — one conversation, every frontier model.
 Usage: relay [OPTIONS]
 
 Options:
-  --version    Print the version and exit
-  -h, --help   Print this help and exit
+  --version      Print the version and exit
+  --daemon       Run in the background without a window (headless)
+  --background   Alias for --daemon
+  -h, --help     Print this help and exit
 
 Environment:
   RELAY_DATA_DIR       Override the data directory
@@ -60,6 +63,9 @@ fn main() -> ExitCode {
             "--help" | "-h" => {
                 print!("{HELP}");
                 return ExitCode::SUCCESS;
+            }
+            "--daemon" | "--background" => {
+                // handled later; fall through
             }
             other => {
                 eprintln!("Unknown option: {other}\n\n{HELP}");
@@ -116,15 +122,19 @@ fn main() -> ExitCode {
     let settings = store.load_settings().unwrap_or_default();
     let _appearance = settings.appearance;
 
+    // Initialize MCP servers (stdio) from settings.
+    mcp::init_global(&settings.mcp_servers);
+
     let bundled = std::sync::Arc::new(std::sync::Mutex::new(bundled::BundledState::default()));
-    {
-        let b = bundled.clone();
-        let variant = crate::bundled::BundledVariant::from_id(&settings.bundled_model_variant)
-            .or_else(|| crate::bundled::BundledVariant::from_model_slug(&settings.local_model))
-            .unwrap_or(crate::bundled::DEFAULT_VARIANT);
-        handle.spawn(async move {
-            bundled::ensure_ready(b, variant).await;
-        });
+
+    // Daemon / background mode: run without a window.
+    let daemon = std::env::args().any(|a| a == "--daemon" || a == "--background");
+    if daemon {
+        eprintln!("Relay running in background/daemon mode (no window).");
+        // Keep the runtime alive.
+        runtime.block_on(std::future::pending::<()>());
+        drop(runtime);
+        return ExitCode::SUCCESS;
     }
 
     gpui_kit::application()

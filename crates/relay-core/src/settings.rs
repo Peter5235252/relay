@@ -127,7 +127,7 @@ impl Appearance {
     }
 }
 
-use crate::tool::{AgentMode, ToolApproval};
+use crate::tool::{AgentMode, McpServerConfig, ToolApproval};
 
 /// Curated interface color preset. Presets are tuned to remain readable in both
 /// light and dark appearance modes.
@@ -249,6 +249,9 @@ pub struct AppSettings {
     pub bundled_model_variant: String,
     /// Whether the welcome panel has been dismissed.
     pub onboarding_complete: bool,
+    /// Configured external MCP (Model Context Protocol) servers (stdio).
+    #[serde(default)]
+    pub mcp_servers: Vec<McpServerConfig>,
 }
 
 impl Default for AppSettings {
@@ -275,6 +278,7 @@ impl Default for AppSettings {
             local_model: String::new(),
             bundled_model_variant: "Nemotron-3.5-Bolt-E4B-Q4_K_M".to_owned(),
             onboarding_complete: false,
+            mcp_servers: Vec::new(),
         }
     }
 }

@@ -215,6 +215,21 @@ pub struct ToolResult {
     pub is_error: bool,
 }
 
+/// Configuration for an external MCP (Model Context Protocol) server launched over stdio.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct McpServerConfig {
+    /// Friendly name used as a prefix for its tools.
+    pub name: String,
+    /// Executable to spawn.
+    pub command: String,
+    /// Arguments passed to the executable.
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Environment variables (KEY=VALUE).
+    #[serde(default)]
+    pub env: Vec<String>,
+}
+
 /// JSON-schema description of a callable tool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolSpec {

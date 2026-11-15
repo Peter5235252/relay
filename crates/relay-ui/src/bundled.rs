@@ -338,7 +338,7 @@ pub async fn ensure_ready(state: Arc<Mutex<BundledState>>, variant: BundledVaria
         .arg("--port")
         .arg(PORT.to_string())
         .arg("-c")
-        .arg("8192")
+        .arg("4096")
         .arg("-ngl")
         .arg("99")
         .arg("--jinja")

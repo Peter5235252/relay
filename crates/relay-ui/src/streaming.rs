@@ -294,6 +294,12 @@ async fn run_tool(
     delegate_ctx: &DelegateContext,
     cancel: &CancellationToken,
 ) -> String {
+    if call.name.starts_with("mcp__") {
+        if let Some(out) = crate::mcp::global_call(&call.name, call.arguments.clone()) {
+            return out;
+        }
+        return "error: MCP registry unavailable".to_owned();
+    }
     if call.name == "delegate" {
         if mode == AgentMode::Plan {
             // allowed in plan per tool spec; treat as read-only external query
@@ -361,8 +367,10 @@ pub fn start(
             }
             // Enforce mode: drop disallowed tools in Plan.
             if mode == AgentMode::Plan {
-                tool_calls
-                    .retain(|c| matches!(c.name.as_str(), "read_file" | "list_dir" | "delegate"));
+                tool_calls.retain(|c| {
+                    matches!(c.name.as_str(), "read_file" | "list_dir" | "delegate")
+                        || c.name.starts_with("mcp__")
+                });
             }
             for c in &tool_calls {
                 let _ = events_tx.send(StreamEvent::ToolCall(c.clone())).await;

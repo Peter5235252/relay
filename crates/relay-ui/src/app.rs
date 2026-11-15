@@ -218,7 +218,7 @@ impl RelayApp {
         };
 
         app.attach_subscriptions(window, cx);
-        app.start_bundled_for_settings();
+        // Bundled model is prepared lazily (on demand) to keep idle RAM low.
         app.spawn_bundled_watcher(cx);
 
         if let Some(summary) = latest {
@@ -979,7 +979,11 @@ impl RelayApp {
             .with_reasoning(reasoning)
             .with_temperature(self.settings.temperature)
             .with_max_output_tokens(self.settings.max_output_tokens)
-            .with_tools(relay_core::tool_specs(self.settings.agent_mode));
+            .with_tools({
+                let mut specs = relay_core::tool_specs(self.settings.agent_mode);
+                specs.extend(crate::mcp::global_tools());
+                specs
+            });
         let preset = self
             .chat
             .presets
