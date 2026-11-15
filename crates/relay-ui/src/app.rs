@@ -16,8 +16,8 @@ use gpui_kit::component::{
     v_flex,
 };
 use gpui_kit::{
-    AppContext as _, Context, Entity, IntoElement, ParentElement as _, Render, SharedString,
-    Styled as _, Subscription, Task, Window, div,
+    AppContext as _, Context, Entity, InteractiveElement as _, IntoElement, KeyDownEvent,
+    ParentElement as _, Render, SharedString, Styled as _, Subscription, Task, Window, div,
 };
 use relay_core::{
     AppSettings, ChatMessage, ContentBlock, ConversationSummary, ModelSelection, PersonalityPreset,
@@ -571,6 +571,10 @@ impl RelayApp {
             self.chat
                 .terminal_input
                 .update(cx, |s, cx| s.focus(window, cx));
+        } else {
+            self.chat
+                .composer
+                .update(cx, |composer, cx| composer.focus(window, cx));
         }
         cx.notify();
     }
@@ -593,6 +597,7 @@ impl RelayApp {
                             }
                             crate::terminal::ShellEvent::Exited => {
                                 if let Some(t) = this.chat.terminal.as_mut() {
+                                    t.exited = true;
                                     t.push_output("\r\n[process exited]\r\n");
                                 }
                                 this.chat.terminal_task = None;
@@ -626,10 +631,13 @@ impl RelayApp {
         cx.notify();
     }
 
-    pub(crate) fn close_terminal(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn close_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.chat.terminal_task = None;
         self.chat.terminal = None;
         self.chat.terminal_open = false;
+        self.chat
+            .composer
+            .update(cx, |composer, cx| composer.focus(window, cx));
         cx.notify();
     }
 
@@ -1322,6 +1330,18 @@ impl Render for RelayApp {
             .size_full()
             .bg(theme.background)
             .text_color(theme.foreground)
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                let ks = &event.keystroke;
+                if this.view == View::Chat
+                    && ks.modifiers.control
+                    && !ks.modifiers.shift
+                    && ks.key == "`"
+                {
+                    window.prevent_default();
+                    cx.stop_propagation();
+                    this.toggle_terminal(window, cx);
+                }
+            }))
             .child(
                 TitleBar::new().child(
                     h_flex()

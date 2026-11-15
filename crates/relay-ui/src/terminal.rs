@@ -16,6 +16,9 @@ pub enum ShellEvent {
 /// Interactive shell session connected to the user's shell.
 pub struct ShellSession {
     pub output: String,
+    /// Whether the shell process has exited.
+    pub exited: bool,
+    shell: String,
     writer: Option<Box<dyn Write + Send>>,
     child: Option<Box<dyn portable_pty::Child + Send + Sync>>,
     master: Option<Box<dyn portable_pty::MasterPty + Send>>,
@@ -169,12 +172,41 @@ impl ShellSession {
 
         Ok(Self {
             output: String::new(),
+            exited: false,
+            shell,
             writer: Some(writer),
             child: Some(child),
             master: Some(pair.master),
             events: rx,
             _events_tx: tx,
         })
+    }
+
+    /// Display name of the shell backing this session.
+    pub fn shell_name(&self) -> &str {
+        std::path::Path::new(&self.shell)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or(&self.shell)
+    }
+
+    /// Current working directory of the shell, abbreviated with `~`.
+    pub fn cwd_label(&self) -> Option<String> {
+        if self.exited {
+            return None;
+        }
+        let pid = self.child.as_ref()?.process_id()?;
+        let path = std::fs::read_link(format!("/proc/{pid}/cwd")).ok()?;
+        let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+        let label = match home {
+            Some(home) => match path.strip_prefix(&home) {
+                Ok(rest) if rest.as_os_str().is_empty() => "~".to_owned(),
+                Ok(rest) => format!("~/{}", rest.display()),
+                Err(_) => path.display().to_string(),
+            },
+            None => path.display().to_string(),
+        };
+        Some(label)
     }
 
     pub fn write(&mut self, data: &str) -> Result<(), String> {

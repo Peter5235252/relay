@@ -3,7 +3,7 @@
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{
     ActiveTheme as _, Disableable as _, Icon, Sizable as _, StyledExt as _, WindowExt as _,
-    button::{Button, ButtonVariants as _},
+    button::{Button, ButtonVariants as _, Toggle},
     h_flex,
     input::{Input, InputState, Textarea, TextareaState},
     select::Select,
@@ -669,9 +669,9 @@ impl RelayApp {
     ) -> impl IntoElement {
         let theme = cx.theme().clone();
         let hint = if self.settings.send_on_enter {
-            "Enter to send · Shift+Enter newline · Ctrl+Tab mode"
+            "Enter to send · Shift+Enter newline · Ctrl+Tab mode · Ctrl+` shell"
         } else {
-            "Enter newline · Send button · Ctrl+Tab mode"
+            "Enter newline · Send button · Ctrl+Tab mode · Ctrl+` shell"
         };
         let model = self.current_model();
         let mode = self.settings.agent_mode;
@@ -787,42 +787,91 @@ impl RelayApp {
                                 ),
                         )
                     })
-                    .when(self.chat.terminal_open, |this| {
-                        let output = self
-                            .chat
-                            .terminal
-                            .as_ref()
-                            .map(|t| t.output.clone())
-                            .unwrap_or_default();
-                        let term_input = self.chat.terminal_input.clone();
-                        let term_scroll = self.chat.terminal_scroll.clone();
-                        this.child(
-                            div().w_full().child(
-                                h_flex().justify_end().child(
+                    .child(
+                        v_flex()
+                            .id("composer-box")
+                            .rounded(theme.radius_lg)
+                            .border_2()
+                            .border_color(outline)
+                            .bg(theme.input)
+                            .overflow_hidden()
+                            .when(self.chat.terminal_open, |this| {
+                                let output = self
+                                    .chat
+                                    .terminal
+                                    .as_ref()
+                                    .map(|t| t.output.clone())
+                                    .unwrap_or_default();
+                                let shell = self
+                                    .chat
+                                    .terminal
+                                    .as_ref()
+                                    .map(|t| t.shell_name().to_owned())
+                                    .unwrap_or_else(|| "bash".to_owned());
+                                let cwd = self
+                                    .chat
+                                    .terminal
+                                    .as_ref()
+                                    .and_then(|t| t.cwd_label())
+                                    .unwrap_or_else(|| "~".to_owned());
+                                let running = self
+                                    .chat
+                                    .terminal
+                                    .as_ref()
+                                    .is_some_and(|t| !t.exited);
+                                let term_input = self.chat.terminal_input.clone();
+                                let term_scroll = self.chat.terminal_scroll.clone();
+                                this.child(
                                     v_flex()
                                         .id("terminal-panel")
-                                        .w(px(480.))
-                                        .h(px(220.))
-                                        .rounded(theme.radius_lg)
-                                        .border_1()
+                                        .w_full()
+                                        .bg(theme.background)
+                                        .border_b_1()
                                         .border_color(theme.border)
-                                        .bg(theme.secondary)
-                                        .shadow_sm()
-                                        .overflow_hidden()
                                         .child(
                                             h_flex()
-                                                .justify_between()
+                                                .h(px(34.))
+                                                .pl_3()
+                                                .pr_1()
+                                                .gap_2()
                                                 .items_center()
-                                                .px_3()
-                                                .py_1p5()
-                                                .border_b_1()
-                                                .border_color(theme.border)
                                                 .child(
                                                     h_flex()
+                                                        .flex_1()
+                                                        .min_w_0()
                                                         .gap_2()
                                                         .items_center()
-                                                        .child(Icon::new(IconName::Terminal).xsmall().text_color(theme.muted_foreground))
-                                                        .child(div().text_xs().font_medium().child("Bash")),
+                                                        .child(
+                                                            div()
+                                                                .size(px(7.))
+                                                                .rounded_full()
+                                                                .bg(if running {
+                                                                    theme.success
+                                                                } else {
+                                                                    theme.muted_foreground
+                                                                }),
+                                                        )
+                                                        .child(
+                                                            Icon::new(IconName::Terminal)
+                                                                .xsmall()
+                                                                .text_color(theme.primary),
+                                                        )
+                                                        .child(
+                                                            div()
+                                                                .text_xs()
+                                                                .font_semibold()
+                                                                .child("Shell"),
+                                                        )
+                                                        .child(
+                                                            div()
+                                                                .min_w_0()
+                                                                .text_xs()
+                                                                .text_color(theme.muted_foreground)
+                                                                .text_ellipsis()
+                                                                .child(SharedString::from(format!(
+                                                                    "{shell} · {cwd}"
+                                                                ))),
+                                                        ),
                                                 )
                                                 .child(
                                                     h_flex()
@@ -834,167 +883,238 @@ impl RelayApp {
                                                                 .xsmall()
                                                                 .icon(Icon::new(IconName::Trash))
                                                                 .tooltip("Clear output")
-                                                                .on_click(cx.listener(|this, _, _window, cx| {
-                                                                    this.clear_terminal(cx);
-                                                                })),
+                                                                .on_click(cx.listener(
+                                                                    |this, _, _window, cx| {
+                                                                        this.clear_terminal(cx);
+                                                                    },
+                                                                )),
                                                         )
                                                         .child(
                                                             Button::new("close-terminal")
                                                                 .ghost()
                                                                 .xsmall()
                                                                 .icon(Icon::new(IconName::X))
-                                                                .tooltip("Close terminal")
-                                                                .on_click(cx.listener(|this, _, _window, cx| {
-                                                                    this.close_terminal(cx);
-                                                                })),
+                                                                .tooltip("Close shell")
+                                                                .on_click(cx.listener(
+                                                                    |this, _, window, cx| {
+                                                                        this.close_terminal(window, cx);
+                                                                    },
+                                                                )),
                                                         ),
                                                 ),
                                         )
                                         .child(
                                             div()
                                                 .id("terminal-output")
-                                                .flex_1()
+                                                .h(px(150.))
                                                 .min_h_0()
                                                 .overflow_y_scroll()
                                                 .track_scroll(&term_scroll)
                                                 .px_3()
-                                                .py_2()
-                                                .child(
+                                                .pb_2()
+                                                .child(if output.trim().is_empty() {
                                                     div()
                                                         .text_xs()
-                                                        .font_family(theme.mono_font_family.clone())
+                                                        .font_family(
+                                                            theme.mono_font_family.clone(),
+                                                        )
+                                                        .text_color(theme.muted_foreground)
+                                                        .child(SharedString::from(format!(
+                                                            "{shell} — ready. This is your real shell; commands run locally as you."
+                                                        )))
+                                                } else {
+                                                    div()
+                                                        .text_xs()
+                                                        .font_family(
+                                                            theme.mono_font_family.clone(),
+                                                        )
                                                         .text_color(theme.foreground)
-                                                        .child(SharedString::from(if output.trim().is_empty() {
-                                                            "bash — ready\n".to_owned()
-                                                        } else {
-                                                            output
-                                                        })),
-                                                ),
+                                                        .child(SharedString::from(output))
+                                                }),
                                         )
                                         .child(
-                                            div()
-                                                .border_t_1()
-                                                .border_color(theme.border)
-                                                .px_2()
-                                                .py_1p5()
-                                                .child(Input::new(&term_input).w_full().small().appearance(false)),
-                                        ),
-                                ),
-                            )
-                        )
-                    })
-                    .child(
-                        v_flex()
-                            .id("composer-box")
-                            .gap_2()
-                            .rounded(theme.radius_lg)
-                            .border_2()
-                            .border_color(outline)
-                            .bg(theme.input)
-                            .p_2()
-                            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
-                                let ks = &event.keystroke;
-                                if ks.modifiers.control && !ks.modifiers.shift && ks.key == "tab" {
-                                    window.prevent_default();
-                                    cx.stop_propagation();
-                                    this.toggle_agent_mode(window, cx);
-                                }
-                            }))
-                            .child(
-                                h_flex()
-                                    .gap_2()
-                                    .items_center()
-                                    .px_1()
-                                    .child({
-                                        let mut btn = Button::new("mode-toggle")
-                                            .small()
-                                            .label(SharedString::from(format!("{mode_label} · Ctrl+Tab")))
-                                            .tooltip(if mode == AgentMode::Plan {
-                                                "Plan: read-only tools only"
-                                            } else {
-                                                "Build: can run tools with approval"
-                                            })
-                                            .on_click(cx.listener(|this, _, window, cx| {
-                                                this.toggle_agent_mode(window, cx);
-                                            }));
-                                        btn = if mode == AgentMode::Plan { btn.ghost() } else { btn.outline() };
-                                        btn
-                                    })
-                                    .child(
-                                        div()
-                                            .w(px(220.))
-                                            .flex_shrink_0()
-                                            .child(Select::new(&approval_select).w_full()),
-                                    )
-                                    .when(mode == AgentMode::Build && approval == ToolApproval::All, |this| {
-                                        this.child(
                                             h_flex()
-                                                .gap_1()
+                                                .mx_3()
+                                                .mb_3()
+                                                .px_2()
+                                                .py_1()
+                                                .gap_2()
                                                 .items_center()
-                                                .flex_1()
-                                                .min_w_0()
-                                                .child(Icon::new(IconName::TriangleAlert).xsmall().text_color(theme.danger))
+                                                .rounded(theme.radius)
+                                                .border_1()
+                                                .border_color(theme.border)
+                                                .bg(theme.input)
                                                 .child(
                                                     div()
-                                                        .text_xs()
-                                                        .text_color(theme.danger)
-                                                        .text_ellipsis()
-                                                        .child("Auto-approve all: destructive commands may run without approval (prompt injection risk)."),
+                                                        .text_sm()
+                                                        .font_family(
+                                                            theme.mono_font_family.clone(),
+                                                        )
+                                                        .text_color(theme.primary)
+                                                        .child("❯"),
+                                                )
+                                                .child(
+                                                    Input::new(&term_input)
+                                                        .flex_1()
+                                                        .small()
+                                                        .appearance(false),
                                                 ),
-                                        )
-                                    }),
-                            )
-                            .child(Textarea::new(composer).appearance(false).bordered(false))
+                                        ),
+                                )
+                            })
                             .child(
-                                h_flex()
-                                    .justify_between()
-                                    .items_center()
+                                v_flex()
+                                    .p_2()
                                     .gap_2()
-                                    .child(
-                                        div()
-                                            .flex_1()
-                                            .text_xs()
-                                            .text_color(theme.muted_foreground)
-                                            .text_ellipsis()
-                                            .child(SharedString::from(format!(
-                                                "{} · {}",
-                                                model.name, hint
-                                            ))),
-                                    )
+                                    .on_key_down(cx.listener(
+                                        |this, event: &KeyDownEvent, window, cx| {
+                                            let ks = &event.keystroke;
+                                            if ks.modifiers.control
+                                                && !ks.modifiers.shift
+                                                && ks.key == "tab"
+                                            {
+                                                window.prevent_default();
+                                                cx.stop_propagation();
+                                                this.toggle_agent_mode(window, cx);
+                                            }
+                                        },
+                                    ))
                                     .child(
                                         h_flex()
-                                            .gap_1()
+                                            .gap_2()
                                             .items_center()
-                                            .child(
-                                                Button::new("toggle-terminal")
-                                                    .ghost()
+                                            .px_1()
+                                            .child({
+                                                let mut btn = Button::new("mode-toggle")
                                                     .small()
-                                                    .icon(Icon::new(IconName::Terminal))
-                                                    .tooltip(if self.chat.terminal_open { "Hide terminal" } else { "Open terminal" })
-                                                    .on_click(cx.listener(|this, _, window, cx| {
-                                                        this.toggle_terminal(window, cx);
-                                                    })),
+                                                    .label(SharedString::from(format!(
+                                                        "{mode_label} · Ctrl+Tab"
+                                                    )))
+                                                    .tooltip(if mode == AgentMode::Plan {
+                                                        "Plan: read-only tools only"
+                                                    } else {
+                                                        "Build: can run tools with approval"
+                                                    })
+                                                    .on_click(cx.listener(
+                                                        |this, _, window, cx| {
+                                                            this.toggle_agent_mode(window, cx);
+                                                        },
+                                                    ));
+                                                btn = if mode == AgentMode::Plan {
+                                                    btn.ghost()
+                                                } else {
+                                                    btn.outline()
+                                                };
+                                                btn
+                                            })
+                                            .child(
+                                                div()
+                                                    .w(px(220.))
+                                                    .flex_shrink_0()
+                                                    .child(Select::new(&approval_select).w_full()),
                                             )
-                                            .child(if streaming {
-                                                Button::new("stop")
-                                                    .danger()
-                                                    .icon(Icon::new(IconName::Square))
-                                                    .tooltip("Stop generating")
-                                                    .on_click(cx.listener(|this, _, _, cx| {
-                                                        this.stop_stream(cx);
-                                                    }))
-                                                    .into_any_element()
-                                            } else {
-                                                Button::new("send")
-                                                    .primary()
-                                                    .icon(Icon::new(IconName::ArrowUp))
-                                                    .tooltip("Send")
-                                                    .disabled(!can_send)
-                                                    .on_click(cx.listener(|this, _, window, cx| {
-                                                        this.send(window, cx);
-                                                    }))
-                                                    .into_any_element()
-                                            }),
+                                            .when(
+                                                mode == AgentMode::Build
+                                                    && approval == ToolApproval::All,
+                                                |this| {
+                                                    this.child(
+                                                        h_flex()
+                                                            .gap_1()
+                                                            .items_center()
+                                                            .flex_1()
+                                                            .min_w_0()
+                                                            .child(
+                                                                Icon::new(
+                                                                    IconName::TriangleAlert,
+                                                                )
+                                                                .xsmall()
+                                                                .text_color(theme.danger),
+                                                            )
+                                                            .child(
+                                                                div()
+                                                                    .text_xs()
+                                                                    .text_color(theme.danger)
+                                                                    .text_ellipsis()
+                                                                    .child("Auto-approve all: destructive commands may run without approval (prompt injection risk)."),
+                                                            ),
+                                                    )
+                                                },
+                                            ),
+                                    )
+                                    .child(Textarea::new(composer).appearance(false).bordered(false))
+                                    .child(
+                                        h_flex()
+                                            .justify_between()
+                                            .items_center()
+                                            .gap_2()
+                                            .child(
+                                                div()
+                                                    .flex_1()
+                                                    .min_w_0()
+                                                    .text_xs()
+                                                    .text_color(theme.muted_foreground)
+                                                    .text_ellipsis()
+                                                    .child(SharedString::from(format!(
+                                                        "{} · {}",
+                                                        model.name, hint
+                                                    ))),
+                                            )
+                                            .child(
+                                                h_flex()
+                                                    .gap_0p5()
+                                                    .items_center()
+                                                    .p_0p5()
+                                                    .rounded(theme.radius)
+                                                    .border_1()
+                                                    .border_color(theme.border)
+                                                    .bg(theme.background)
+                                                    .child(
+                                                        Toggle::new("shell-toggle")
+                                                            .icon(
+                                                                Icon::new(IconName::Terminal)
+                                                                    .small(),
+                                                            )
+                                                            .label("Shell")
+                                                            .checked(self.chat.terminal_open)
+                                                            .tooltip("Toggle shell · Ctrl+`")
+                                                            .on_click(cx.listener(
+                                                                |this, _, window, cx| {
+                                                                    this.toggle_terminal(window, cx);
+                                                                },
+                                                            )),
+                                                    )
+                                                    .child(
+                                                        div()
+                                                            .w(px(1.))
+                                                            .h(px(14.))
+                                                            .mx_0p5()
+                                                            .bg(theme.border),
+                                                    )
+                                                    .child(if streaming {
+                                                        Button::new("stop")
+                                                            .danger()
+                                                            .icon(Icon::new(IconName::Square))
+                                                            .tooltip("Stop generating")
+                                                            .on_click(cx.listener(
+                                                                |this, _, _, cx| {
+                                                                    this.stop_stream(cx);
+                                                                },
+                                                            ))
+                                                            .into_any_element()
+                                                    } else {
+                                                        Button::new("send")
+                                                            .primary()
+                                                            .icon(Icon::new(IconName::ArrowUp))
+                                                            .tooltip("Send")
+                                                            .disabled(!can_send)
+                                                            .on_click(cx.listener(
+                                                                |this, _, window, cx| {
+                                                                    this.send(window, cx);
+                                                                },
+                                                            ))
+                                                            .into_any_element()
+                                                    }),
+                                            ),
                                     ),
                             ),
                     ),
