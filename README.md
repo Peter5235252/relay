@@ -10,7 +10,7 @@ Built with [GPUI](https://github.com/zed-industries/zed).
   OpenAI-compatible endpoints.
 - Conversation history with full-text search, grouped sidebar.
 - Per-conversation model selection and app-global reasoning effort.
-- Settings, custom instructions, and personality presets.
+- Settings, cross-session memory, custom instructions, and personality presets.
 - Markdown transcript, usage and cost tracking, Markdown export.
 - SQLCipher-encrypted conversation history, local full-text search.
 - API keys sealed with ChaCha20-Poly1305 before storage in the OS keyring
