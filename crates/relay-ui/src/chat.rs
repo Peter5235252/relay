@@ -668,12 +668,6 @@ impl RelayApp {
         notice: Option<String>,
     ) -> impl IntoElement {
         let theme = cx.theme().clone();
-        let hint = if self.settings.send_on_enter {
-            "Enter to send · Shift+Enter newline · Ctrl+Tab mode · Ctrl+` shell"
-        } else {
-            "Enter newline · Send button · Ctrl+Tab mode · Ctrl+` shell"
-        };
-        let model = self.current_model();
         let mode = self.settings.agent_mode;
         let approval = self.settings.tool_approval;
         let outline = match mode {
@@ -1044,21 +1038,8 @@ impl RelayApp {
                                     .child(Textarea::new(composer).appearance(false).bordered(false))
                                     .child(
                                         h_flex()
-                                            .justify_between()
+                                            .justify_end()
                                             .items_center()
-                                            .gap_2()
-                                            .child(
-                                                div()
-                                                    .flex_1()
-                                                    .min_w_0()
-                                                    .text_xs()
-                                                    .text_color(theme.muted_foreground)
-                                                    .text_ellipsis()
-                                                    .child(SharedString::from(format!(
-                                                        "{} · {}",
-                                                        model.name, hint
-                                                    ))),
-                                            )
                                             .child(
                                                 h_flex()
                                                     .gap_0p5()
