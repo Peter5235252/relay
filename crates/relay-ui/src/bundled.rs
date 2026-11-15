@@ -276,7 +276,7 @@ pub fn stop_child(state: &Arc<Mutex<BundledState>>) {
     }
 }
 
-pub async fn ensure_ready(state: Arc<Mutex<BundledState>>, variant: BundledVariant) {
+pub async fn ensure_ready(state: Arc<Mutex<BundledState>>, variant: BundledVariant, context_size: u32) {
     // If already ready with requested variant, nothing to do.
     if let Ok(s) = state.lock() {
         if s.status.ready && s.status.active_variant.as_deref() == Some(variant.id()) {
@@ -338,7 +338,7 @@ pub async fn ensure_ready(state: Arc<Mutex<BundledState>>, variant: BundledVaria
         .arg("--port")
         .arg(PORT.to_string())
         .arg("-c")
-        .arg("4096")
+        .arg(context_size.to_string())
         .arg("-ngl")
         .arg("99")
         .arg("--jinja")
@@ -381,8 +381,8 @@ pub async fn ensure_ready(state: Arc<Mutex<BundledState>>, variant: BundledVaria
 pub const MODEL_ID: &str = "Nemotron-3.5-Bolt-E4B-Q4_K_M";
 pub const DISPLAY_NAME: &str = "Nemotron 3.5 Bolt E4B (local, 4GB)";
 
-pub async fn ensure_ready_default(state: Arc<Mutex<BundledState>>) {
-    ensure_ready(state, DEFAULT_VARIANT).await;
+pub async fn ensure_ready_default(state: Arc<Mutex<BundledState>>, context_size: u32) {
+    ensure_ready(state, DEFAULT_VARIANT, context_size).await;
 }
 
 pub fn stop(state: &Arc<Mutex<BundledState>>) {

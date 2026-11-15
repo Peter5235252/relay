@@ -22,6 +22,17 @@ pub struct McpTool {
     pub parameters: Value,
 }
 
+impl Drop for McpServer {
+    fn drop(&mut self) {
+        if let Ok(mut g) = self.child.lock() {
+            if let Some(mut c) = g.take() {
+                let _ = c.kill();
+                let _ = c.wait();
+            }
+        }
+    }
+}
+
 pub struct McpServer {
     name: String,
     child: Mutex<Option<Child>>,

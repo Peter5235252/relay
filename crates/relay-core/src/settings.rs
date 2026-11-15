@@ -247,6 +247,9 @@ pub struct AppSettings {
     pub local_model: String,
     /// Selected bundled Nemotron variant id (e.g. standard/uncensored).
     pub bundled_model_variant: String,
+    /// Context window (tokens) for the bundled Nemotron llama-server.
+    #[serde(default = "default_bundled_context_size")]
+    pub bundled_context_size: u32,
     /// Whether the welcome panel has been dismissed.
     pub onboarding_complete: bool,
     /// Configured external MCP (Model Context Protocol) servers (stdio).
@@ -277,6 +280,7 @@ impl Default for AppSettings {
             local_base_url: "http://localhost:8000/v1".to_owned(),
             local_model: String::new(),
             bundled_model_variant: "Nemotron-3.5-Bolt-E4B-Q4_K_M".to_owned(),
+            bundled_context_size: 4096,
             onboarding_complete: false,
             mcp_servers: Vec::new(),
         }
@@ -310,10 +314,20 @@ impl AppSettings {
         if self.bundled_model_variant.is_empty() {
             self.bundled_model_variant = "Nemotron-3.5-Bolt-E4B-Q4_K_M".to_owned();
         }
+        if self.bundled_context_size < 512 {
+            self.bundled_context_size = 512;
+        }
+        if self.bundled_context_size > 32768 {
+            self.bundled_context_size = 32768;
+        }
         if self.active_preset_id.trim().is_empty() {
             self.active_preset_id = "balanced".to_owned();
         }
     }
+}
+
+fn default_bundled_context_size() -> u32 {
+    4096
 }
 
 fn normalize_url(url: &str) -> String {

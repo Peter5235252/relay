@@ -101,6 +101,8 @@ pub struct SettingsView {
     ollama_model: Entity<InputState>,
     local_url: Entity<InputState>,
     local_model: Entity<InputState>,
+    bundled_context: Entity<InputState>,
+    mcp_config: Entity<TextareaState>,
     key_inputs: Vec<(Provider, Entity<InputState>)>,
     key_sources: Vec<(Provider, KeySource)>,
     presets: Vec<PersonalityPreset>,
@@ -189,6 +191,14 @@ impl SettingsView {
             &settings.local_base_url,
         );
         let local_model = text_input(window, cx, "Model name", &settings.local_model);
+        let bundled_context = text_input(
+            window,
+            cx,
+            "4096",
+            &settings.bundled_context_size.to_string(),
+        );
+        let mcp_json = serde_json::to_string_pretty(&settings.mcp_servers).unwrap_or_else(|_| "[]".into());
+        let mcp_config = textarea(window, cx, "JSON array of MCP servers", &mcp_json);
 
         let mut key_inputs = Vec::new();
         for provider in key_providers() {
@@ -233,6 +243,8 @@ impl SettingsView {
             ollama_model,
             local_url,
             local_model,
+            bundled_context,
+            mcp_config,
             key_inputs,
             key_sources,
             presets,
@@ -304,6 +316,14 @@ impl SettingsView {
         self.settings.ollama_model = self.ollama_model.read(cx).value().to_string();
         self.settings.local_base_url = self.local_url.read(cx).value().to_string();
         self.settings.local_model = self.local_model.read(cx).value().to_string();
+        if let Ok(n) = self.bundled_context.read(cx).value().parse::<u32>() {
+            self.settings.bundled_context_size = n;
+        }
+        if let Ok(servers) = serde_json::from_str::<Vec<relay_core::McpServerConfig>>(
+            &self.mcp_config.read(cx).value().to_string(),
+        ) {
+            self.settings.mcp_servers = servers;
+        }
         self.settings.normalize();
 
         if let Err(error) = self.store.save_settings(&self.settings) {
@@ -314,6 +334,7 @@ impl SettingsView {
             return;
         }
         cx.emit(SettingsEvent::Saved(Box::new(self.settings.clone())));
+        crate::mcp::init_global(&self.settings.mcp_servers);
         self.stats = self.store.stats().unwrap_or_default();
         cx.notify();
     }
@@ -789,6 +810,8 @@ impl SettingsView {
         let ollama_model = self.ollama_model.clone();
         let local_url = self.local_url.clone();
         let local_model = self.local_model.clone();
+        let bundled_context = self.bundled_context.clone();
+        let mcp_config = self.mcp_config.clone();
 
         let mut key_cards = v_flex().gap_4();
         for provider in key_providers() {
@@ -842,6 +865,24 @@ impl SettingsView {
                         Input::new(&local_model).w(px(280.)),
                     )),
             )
+            .child(section(
+                "Bundled Nemotron",
+                "Context window for the auto-managed local Nemotron model (requires restart of the bundled server).",
+                &theme,
+            ))
+            .child(
+                card(&theme).child(field(
+                    "Context size (tokens)",
+                    "Tokens of context for the bundled llama-server (512-32768).",
+                    Input::new(&bundled_context).w(px(120.)),
+                )),
+            )
+            .child(section(
+                "MCP servers (stdio)",
+                "JSON array of {name, command, args, env}. Saved servers are spawned at startup.",
+                &theme,
+            ))
+            .child(card(&theme).child(Textarea::new(&mcp_config).h(px(160.))))
             .into_any_element()
     }
 

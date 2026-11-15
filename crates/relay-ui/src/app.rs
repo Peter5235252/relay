@@ -242,9 +242,10 @@ impl RelayApp {
 
     fn start_bundled_for_settings(&self) {
         let variant = self.selected_bundled_variant();
+        let ctx = self.settings.bundled_context_size;
         let bundled = self.bundled.clone();
         self.runtime.spawn(async move {
-            crate::bundled::ensure_ready(bundled, variant).await;
+            crate::bundled::ensure_ready(bundled, variant, ctx).await;
         });
     }
 
@@ -258,9 +259,10 @@ impl RelayApp {
             || !status.ready
             || status.endpoint.is_none();
         if needs {
+            let ctx = self.settings.bundled_context_size;
             let bundled = self.bundled.clone();
             self.runtime.spawn(async move {
-                crate::bundled::ensure_ready(bundled, variant).await;
+                crate::bundled::ensure_ready(bundled, variant, ctx).await;
             });
             if let Ok(mut s) = self.bundled.lock() {
                 if s.status.active_variant.as_deref() != Some(variant.id()) {
