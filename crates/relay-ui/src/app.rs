@@ -1068,17 +1068,19 @@ impl RelayApp {
         } else {
             self.settings.reasoning
         };
+        let tools = if self.settings.interaction_mode == "chat" {
+            relay_core::chat_tool_specs()
+        } else {
+            let mut specs = relay_core::tool_specs(self.settings.agent_mode);
+            specs.extend(crate::mcp::global_tools());
+            specs
+        };
+        eprintln!("RELAY TRACE generate: mode={} tools={}", self.settings.interaction_mode, tools.len());
         let mut request = ChatRequest::new(model.clone(), Vec::new())
             .with_reasoning(reasoning)
             .with_temperature(self.settings.temperature)
             .with_max_output_tokens(self.settings.max_output_tokens)
-            .with_tools(if self.settings.interaction_mode == "chat" {
-                relay_core::chat_tool_specs()
-            } else {
-                let mut specs = relay_core::tool_specs(self.settings.agent_mode);
-                specs.extend(crate::mcp::global_tools());
-                specs
-            });
+            .with_tools(tools);
         let preset = self
             .chat
             .presets

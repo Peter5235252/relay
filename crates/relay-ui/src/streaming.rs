@@ -52,7 +52,9 @@ impl DelegateContext {
 
 async fn run_local_tool(call: &ToolCall, mode: AgentMode) -> String {
     // Strict Plan mode: read-only for local fs/commands.
-    if mode == AgentMode::Plan && !matches!(call.name.as_str(), "read_file" | "list_dir") {
+    if mode == AgentMode::Plan
+        && !matches!(call.name.as_str(), "read_file" | "list_dir" | "web_search" | "fetch_url")
+    {
         return "error: tool not allowed in Plan mode".to_owned();
     }
     match call.name.as_str() {
@@ -345,6 +347,7 @@ pub fn start(
     approval: ToolApproval,
     delegate_ctx: DelegateContext,
 ) -> Result<StartedStream, String> {
+    eprintln!("RELAY TRACE start: mode={:?} tools={}", mode, request.tools.len());
     let client = ProviderClient::new().map_err(|e| e.to_string())?;
     let (events_tx, events_rx) = unbounded::<StreamEvent>();
     let (error_tx, error_rx) = unbounded::<String>();
@@ -402,6 +405,7 @@ pub fn start(
                 });
             }
             for c in &tool_calls {
+                eprintln!("RELAY TRACE tool_call emitted: {}", c.name);
                 let _ = events_tx.send(StreamEvent::ToolCall(c.clone())).await;
             }
             let stream_result = jh
@@ -443,7 +447,9 @@ pub fn start(
                     allowed = rx.await.unwrap_or(false);
                 }
                 let output = if allowed {
-                    run_tool(&client, call, mode, &delegate_ctx, &token).await
+                    let o = run_tool(&client, call, mode, &delegate_ctx, &token).await;
+                    eprintln!("RELAY TRACE tool result ({}): {}", call.name, o.chars().take(120).collect::<String>());
+                    o
                 } else {
                     "error: denied by user".to_owned()
                 };

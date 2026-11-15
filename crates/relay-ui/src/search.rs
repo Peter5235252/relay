@@ -135,5 +135,3 @@ fn strip_tags(html: &str) -> String {
     let re_ws = regex::Regex::new(r"\s+").unwrap();
     re_ws.replace_all(&s, " ").trim().to_owned()
 }
-EOF
-echo done
