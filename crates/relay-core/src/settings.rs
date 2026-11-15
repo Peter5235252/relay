@@ -255,6 +255,9 @@ pub struct AppSettings {
     /// Configured external MCP (Model Context Protocol) servers (stdio).
     #[serde(default)]
     pub mcp_servers: Vec<McpServerConfig>,
+    /// Unix timestamp of the last automatic memory summary.
+    #[serde(default)]
+    pub last_memory_summary_at: i64,
 }
 
 impl Default for AppSettings {
@@ -283,6 +286,7 @@ impl Default for AppSettings {
             bundled_context_size: 4096,
             onboarding_complete: false,
             mcp_servers: Vec::new(),
+            last_memory_summary_at: 0,
         }
     }
 }

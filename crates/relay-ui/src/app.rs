@@ -220,7 +220,7 @@ impl RelayApp {
         app.attach_subscriptions(window, cx);
         // Bundled model is prepared lazily (on demand) to keep idle RAM low.
         app.spawn_bundled_watcher(cx);
-
+        app.spawn_memory_summarizer();
         if let Some(summary) = latest {
             app.load_conversation_data(&summary.id, window, cx);
             app.rebuild_model_select(window, cx);
@@ -228,6 +228,93 @@ impl RelayApp {
         }
 
         app
+    }
+
+    fn spawn_memory_summarizer(&self) {
+        let store = self.store.clone();
+        let bundled = self.bundled.clone();
+        let runtime = self.runtime.clone();
+        runtime.spawn(async move {
+            use std::time::Duration;
+            loop {
+                let mut endpoint = None;
+                for _ in 0..360 {
+                    let st = bundled.lock().map(|s| s.status()).unwrap_or_default();
+                    if st.ready {
+                        endpoint = st.endpoint;
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_secs(10)).await;
+                }
+                let Some(endpoint) = endpoint else {
+                    tokio::time::sleep(Duration::from_secs(60)).await;
+                    continue;
+                };
+
+                let mut settings = store.load_settings().unwrap_or_default();
+                let now = chrono::Utc::now().timestamp();
+                if now - settings.last_memory_summary_at < 10 * 3600 {
+                    tokio::time::sleep(Duration::from_secs(3600)).await;
+                    continue;
+                }
+
+                let convs = store.list_conversations().unwrap_or_default();
+                let mut text = String::new();
+                for c in convs.iter().take(8) {
+                    if let Ok(msgs) = store.messages(&c.id) {
+                        text.push_str(&format!("Conversation: {}\n", c.title));
+                        for m in msgs.iter().take(30) {
+                            let t = m.text();
+                            if t.trim().is_empty() {
+                                continue;
+                            }
+                            text.push_str(&format!("{}: {}\n", m.role.as_str(), t.chars().take(800).collect::<String>()));
+                        }
+                    }
+                }
+                if text.trim().is_empty() {
+                    settings.last_memory_summary_at = now;
+                    let _ = store.save_settings(&settings);
+                    tokio::time::sleep(Duration::from_secs(3600)).await;
+                    continue;
+                }
+
+                let prompt = format!(
+                    "Summarize the following conversation history into a concise cross-session memory \
+                     of user preferences, facts, and ongoing tasks. Output only the summary, no preamble.\n\n{text}"
+                );
+                let client = reqwest::Client::new();
+                let body = serde_json::json!({
+                    "model": "local-model",
+                    "messages": [{"role":"user","content":prompt}],
+                    "max_tokens": 512,
+                });
+                let url = format!("{}/chat/completions", endpoint.trim_end_matches('/'));
+                if let Ok(resp) = client.post(&url).json(&body).send().await {
+                    if let Ok(json) = resp.json::<serde_json::Value>().await {
+                        if let Some(summary) = json
+                            .get("choices")
+                            .and_then(|c| c.get(0))
+                            .and_then(|c| c.get("message"))
+                            .and_then(|m| m.get("content"))
+                            .and_then(|x| x.as_str())
+                        {
+                            if let Ok(mems) = store.list_memories() {
+                                for (id, content) in mems {
+                                    if content.starts_with("[Auto-summary]") {
+                                        let _ = store.delete_memory(&id);
+                                    }
+                                }
+                            }
+                            let _ = store.add_memory(&format!("[Auto-summary] {}", summary.trim()));
+                            settings.last_memory_summary_at = chrono::Utc::now().timestamp();
+                            let _ = store.save_settings(&settings);
+                        }
+                    }
+                }
+                tokio::time::sleep(Duration::from_secs(3600)).await;
+            }
+        });
     }
 
     pub(crate) fn bundled_status(&self) -> crate::bundled::BundledStatus {
