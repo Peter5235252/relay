@@ -696,6 +696,7 @@ impl RelayApp {
     ) -> impl IntoElement {
         let theme = cx.theme().clone();
         let bundled_progress = self.bundled_status().progress;
+        let is_chat = self.settings.interaction_mode == "chat";
         let mode = self.settings.agent_mode;
         let approval = self.settings.tool_approval;
         let outline = match mode {
@@ -832,8 +833,9 @@ impl RelayApp {
                         v_flex()
                             .id("composer-box")
                             .rounded(theme.radius_lg)
-                            .border_2()
-                            .border_color(outline)
+                            .border_1()
+                            .border_color(theme.border)
+                            .when(!is_chat, |this| this.border_2().border_color(outline))
                             .bg(theme.input)
                             .overflow_hidden()
                             .when(self.chat.terminal_open, |this| {
@@ -1020,12 +1022,14 @@ impl RelayApp {
                                             }
                                         },
                                     ))
-                                    .child(
-                                        h_flex()
-                                            .gap_2()
-                                            .items_center()
-                                            .px_1()
-                                            .child({
+                                    .when(!is_chat, |this| {
+                                        this.child(
+                                            h_flex()
+                                                .gap_2()
+                                                .items_center()
+                                                .px_1()
+                                                .child({
+
                                                 let mut btn = Button::new("mode-toggle")
                                                     .small()
                                                     .label(SharedString::from(format!(
@@ -1082,6 +1086,7 @@ impl RelayApp {
                                                 },
                                             ),
                                     )
+                                    })
                                     .child(Textarea::new(composer).appearance(false).bordered(false))
                                     .child(
                                         h_flex()
