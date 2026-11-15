@@ -84,12 +84,15 @@ impl RelayApp {
                     )
                     .child(
                         h_flex()
-                            .gap_1()
+                            .gap_2()
+                            .items_center()
                             .child(
                                 Button::new("mode-chat")
-                                    .small()
                                     .label("Chat")
+                                    .px_4()
+                                    .py_1p5()
                                     .when(self.settings.interaction_mode == "chat", |b| b.primary())
+                                    .when(self.settings.interaction_mode != "chat", |b| b.outline())
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.settings.interaction_mode = "chat".to_owned();
                                         this.persist_settings();
@@ -98,9 +101,11 @@ impl RelayApp {
                             )
                             .child(
                                 Button::new("mode-work")
-                                    .small()
                                     .label("Work")
+                                    .px_4()
+                                    .py_1p5()
                                     .when(self.settings.interaction_mode == "work", |b| b.primary())
+                                    .when(self.settings.interaction_mode != "work", |b| b.outline())
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.settings.interaction_mode = "work".to_owned();
                                         this.persist_settings();
@@ -110,9 +115,17 @@ impl RelayApp {
                     )
                     .child(
                         div()
-                            .w(px(244.))
-                            .flex_shrink_0()
-                            .child(Select::new(&model_select).w_full()),
+                            .flex_1()
+                            .flex()
+                            .justify_end()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .w(px(244.))
+                                    .flex_shrink_0()
+                                    .child(Select::new(&model_select).w_full()),
+                            )
                     )
                     .when_some(reasoning_select, |this, select| {
                         this.child(
@@ -1101,28 +1114,30 @@ impl RelayApp {
                                                     .border_1()
                                                     .border_color(theme.border)
                                                     .bg(theme.background)
-                                                    .child(
-                                                        Toggle::new("shell-toggle")
-                                                            .icon(
-                                                                Icon::new(IconName::Terminal)
-                                                                    .small(),
-                                                            )
-                                                            .label("Shell")
-                                                            .checked(self.chat.terminal_open)
-                                                            .tooltip("Toggle shell · Ctrl+`")
-                                                            .on_click(cx.listener(
-                                                                |this, _, window, cx| {
-                                                                    this.toggle_terminal(window, cx);
-                                                                },
-                                                            )),
-                                                    )
-                                                    .child(
-                                                        div()
-                                                            .w(px(1.))
-                                                            .h(px(14.))
-                                                            .mx_0p5()
-                                                            .bg(theme.border),
-                                                    )
+                                                    .when(!is_chat, |this| {
+                                                        this.child(
+                                                            Toggle::new("shell-toggle")
+                                                                .icon(
+                                                                    Icon::new(IconName::Terminal)
+                                                                        .small(),
+                                                                )
+                                                                .label("Shell")
+                                                                .checked(self.chat.terminal_open)
+                                                                .tooltip("Toggle shell · Ctrl+`")
+                                                                .on_click(cx.listener(
+                                                                    |this, _, window, cx| {
+                                                                        this.toggle_terminal(window, cx);
+                                                                    },
+                                                                )),
+                                                        )
+                                                        .child(
+                                                            div()
+                                                                .w(px(1.))
+                                                                .h(px(14.))
+                                                                .mx_0p5()
+                                                                .bg(theme.border),
+                                                        )
+                                                    })
                                                     .child(if streaming {
                                                         Button::new("stop")
                                                             .danger()
