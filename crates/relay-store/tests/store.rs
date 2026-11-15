@@ -3,10 +3,14 @@
 use relay_core::{
     AppSettings, ChatMessage, ContentBlock, PersonalityPreset, ReasoningEffort, Usage,
 };
-use relay_store::Store;
+use relay_store::{DatabaseKey, Store};
+
+fn key() -> DatabaseKey {
+    DatabaseKey::new([0x5a; 32])
+}
 
 fn store() -> Store {
-    Store::open_in_memory().expect("open in-memory store")
+    Store::open_in_memory(&key()).expect("open in-memory store")
 }
 
 #[test]

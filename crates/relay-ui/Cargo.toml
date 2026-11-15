@@ -18,8 +18,12 @@ relay-core.workspace = true
 relay-providers.workspace = true
 relay-store.workspace = true
 chrono.workspace = true
+getrandom = "0.3"
 gpui-kit.workspace = true
+hex = "0.4"
 keyring.workspace = true
+ring = "0.17"
+rustix = { version = "1.1", features = ["fs", "process"] }
 smol.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true

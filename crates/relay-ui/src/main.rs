@@ -11,6 +11,7 @@ mod sidebar;
 mod streaming;
 mod terminal;
 mod theme;
+mod vault;
 
 use std::process::ExitCode;
 
@@ -31,12 +32,23 @@ Options:
 
 Environment:
   RELAY_DATA_DIR       Override the data directory
+  RELAY_MASTER_KEY     Master key for encrypted storage (64 hex characters;
+                       headless fallback when no OS keyring is available)
   GEMINI_API_KEY       Fallback for the Gemini key
   ANTHROPIC_API_KEY    Fallback for the Anthropic key
   OPENAI_API_KEY       Fallback for the OpenAI key
   RELAY_LOCAL_API_KEY  Optional bearer token for a local endpoint
   RUST_LOG             Log filter (default: relay_ui=info,warn)
 ";
+
+/// Keep newly created databases, journals, and model downloads private.
+#[cfg(unix)]
+fn restrict_umask() {
+    rustix::process::umask(rustix::fs::Mode::from_bits_truncate(0o077));
+}
+
+#[cfg(not(unix))]
+fn restrict_umask() {}
 
 fn main() -> ExitCode {
     if let Some(argument) = std::env::args().nth(1) {
@@ -55,6 +67,8 @@ fn main() -> ExitCode {
             }
         }
     }
+
+    restrict_umask();
 
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "relay_ui=info,warn".into());
@@ -77,7 +91,21 @@ fn main() -> ExitCode {
     };
     let handle = runtime.handle().clone();
 
-    let store = match Store::open_default() {
+    let vault = match vault::Vault::init() {
+        Ok(vault) => vault,
+        Err(error) => {
+            eprintln!("Relay could not unlock its encryption key: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let database_key = match vault.database_key() {
+        Ok(key) => key,
+        Err(error) => {
+            eprintln!("Relay could not derive its database key: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let store = match Store::open_default(&database_key) {
         Ok(store) => store,
         Err(error) => {
             eprintln!("Relay could not open its database: {error}");

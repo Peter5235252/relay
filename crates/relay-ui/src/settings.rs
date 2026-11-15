@@ -799,8 +799,9 @@ impl SettingsView {
             .gap_6()
             .child(section(
                 "Cloud API keys",
-                "Keys are stored in your desktop keyring. Environment variables are used as a \
-                 fallback when no keyring entry exists.",
+                "Keys are sealed with ChaCha20-Poly1305 before they are stored in your desktop \
+                 keyring. Environment variables are used as a fallback when no keyring entry \
+                 exists.",
                 &theme,
             ))
             .child(key_cards)
@@ -1105,7 +1106,9 @@ impl SettingsView {
             .gap_6()
             .child(section(
                 "Local data",
-                "Everything Relay stores lives in one SQLite database on this machine.",
+                "Everything Relay stores lives in one SQLCipher-encrypted SQLite database on this \
+                 machine. The database key is held in your OS keyring, or supplied by \
+                 RELAY_MASTER_KEY for headless setups.",
                 &theme,
             ))
             .child(
@@ -1131,6 +1134,18 @@ impl SettingsView {
                                     .font_family("DejaVu Sans Mono")
                                     .text_color(theme.muted_foreground)
                                     .child(SharedString::from(path.clone())),
+                            ),
+                    )
+                    .child(
+                        h_flex()
+                            .justify_between()
+                            .items_center()
+                            .child(div().text_sm().font_medium().child("Encryption"))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(theme.muted_foreground)
+                                    .child("SQLCipher · AES-256 · key in keyring or env"),
                             ),
                     )
                     .child(
@@ -1328,7 +1343,8 @@ impl SettingsView {
                     ))
                     .child(check_item(
                         "Your data stays with you",
-                        "History is a local SQLite file. API keys live in the OS keyring or your environment, never the database.",
+                        "History is a local SQLCipher-encrypted database. API keys are sealed in \
+                         the OS keyring or read from your environment, never the database.",
                         &theme,
                     ))
                     .child(check_item(

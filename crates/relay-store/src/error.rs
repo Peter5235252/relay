@@ -27,6 +27,12 @@ pub enum StoreError {
     /// A message row had an unrecognized role.
     #[error("invalid message role in database: {0}")]
     InvalidRole(String),
+    /// The database is encrypted and could not be unlocked with the supplied key.
+    #[error("could not unlock the encrypted database: {0}")]
+    Unlock(String),
+    /// Encryption support is missing or a plaintext migration failed.
+    #[error("database encryption error: {0}")]
+    Encryption(String),
     /// The OS data directory could not be determined.
     #[error("could not determine a data directory; set RELAY_DATA_DIR")]
     NoDataDirectory,

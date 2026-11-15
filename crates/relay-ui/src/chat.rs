@@ -174,7 +174,8 @@ impl RelayApp {
                                 .gap_0p5()
                                 .child(div().text_sm().font_medium().child("Add an API key"))
                                 .child(div().text_xs().text_color(theme.muted_foreground).child(
-                                    "Keys live in your desktop keyring, never in Relay's database.",
+                                    "Keys are encrypted in your desktop keyring, never in Relay's \
+                                     database. History is encrypted locally.",
                                 )),
                         )
                         .child(

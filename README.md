@@ -12,7 +12,20 @@ Built with [GPUI](https://github.com/zed-industries/zed).
 - Per-conversation model selection and app-global reasoning effort.
 - Settings, custom instructions, and personality presets.
 - Markdown transcript, usage and cost tracking, Markdown export.
-- OS keyring for API keys (never stored in the database).
+- SQLCipher-encrypted conversation history, local full-text search.
+- API keys sealed with ChaCha20-Poly1305 before storage in the OS keyring
+  (never stored in the database).
+
+## Security
+
+Relay keeps all conversation data in a single SQLCipher database under the
+local data directory. On first launch Relay generates a random 256-bit master
+key, stores it in the OS keyring, and derives separate keys with HKDF-SHA256 for
+the database and for sealing API keys. Existing plaintext databases and
+plaintext keyring entries are migrated automatically.
+
+For headless environments without a keyring, set `RELAY_MASTER_KEY` to 64 hex
+characters. Keep that value secret: it unlocks the local database.
 
 ## Building
 

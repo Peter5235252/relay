@@ -1,5 +1,7 @@
 use std::{
     env,
+    fs::{self, File},
+    io::{ErrorKind, Read},
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard},
 };
@@ -11,8 +13,11 @@ use relay_core::{
     builtin_presets, conversation_markdown, title_from_prompt,
 };
 use rusqlite::{Connection, OptionalExtension, Row, params};
+use zeroize::Zeroizing;
 
-use crate::{Result, StoreError};
+use crate::{DatabaseKey, Result, StoreError};
+
+const SQLITE_HEADER: &[u8] = b"SQLite format 3\0";
 
 const SCHEMA_VERSION: i32 = 2;
 
@@ -69,25 +74,39 @@ pub fn default_database_path() -> Result<PathBuf> {
 
 impl Store {
     /// Open the default database, creating the data directory if necessary.
-    pub fn open_default() -> Result<Self> {
-        Self::open(default_database_path()?)
+    pub fn open_default(key: &DatabaseKey) -> Result<Self> {
+        Self::open(default_database_path()?, key)
     }
 
     /// Open a database at a specific path.
-    pub fn open(path: impl AsRef<Path>) -> Result<Self> {
+    ///
+    /// New databases are created encrypted. An existing plaintext SQLite
+    /// database is exported to a keyed SQLCipher database and replaced
+    /// atomically, so its conversations survive the upgrade.
+    pub fn open(path: impl AsRef<Path>, key: &DatabaseKey) -> Result<Self> {
         let path = path.as_ref().to_path_buf();
         if let Some(parent) = path.parent()
             && !parent.as_os_str().is_empty()
         {
-            std::fs::create_dir_all(parent)?;
+            fs::create_dir_all(parent)?;
+            restrict_dir(parent)?;
         }
+
+        if database_state(&path)? == DatabaseState::Plaintext {
+            encrypt_plaintext(&path, key)?;
+        } else {
+            create_private_file(&path)?;
+        }
+
         let conn = Connection::open(&path)?;
+        prepare_connection(&conn, key)?;
         Self::from_connection(conn, path)
     }
 
     /// Open an in-memory database. Used by tests and `relay --demo`.
-    pub fn open_in_memory() -> Result<Self> {
+    pub fn open_in_memory(key: &DatabaseKey) -> Result<Self> {
         let conn = Connection::open_in_memory()?;
+        prepare_connection(&conn, key)?;
         Self::from_connection(conn, PathBuf::from(":memory:"))
     }
 
@@ -98,6 +117,9 @@ impl Store {
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         migrate(&mut conn)?;
         sync_builtin_presets(&conn)?;
+        if path.as_os_str() != ":memory:" {
+            restrict_database_files(&path)?;
+        }
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
             path: Arc::new(path),
@@ -561,6 +583,235 @@ impl Store {
             tokens,
         })
     }
+}
+
+/// Whether a database path is empty and new, plaintext SQLite, or encrypted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DatabaseState {
+    Missing,
+    Plaintext,
+    Encrypted,
+}
+
+fn database_state(path: &Path) -> Result<DatabaseState> {
+    let metadata = match fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(DatabaseState::Missing),
+        Err(error) => return Err(error.into()),
+    };
+    if metadata.len() == 0 {
+        return Ok(DatabaseState::Missing);
+    }
+
+    let mut file = File::open(path)?;
+    let mut header = [0u8; 16];
+    let mut read = 0;
+    while read < header.len() {
+        match file.read(&mut header[read..])? {
+            0 => break,
+            count => read += count,
+        }
+    }
+    if header.as_slice() == SQLITE_HEADER {
+        Ok(DatabaseState::Plaintext)
+    } else {
+        Ok(DatabaseState::Encrypted)
+    }
+}
+
+/// Create a new database file with owner-only permissions, or tighten an
+/// existing empty file.
+#[cfg(unix)]
+fn create_private_file(path: &Path) -> Result<()> {
+    use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
+
+    if let Ok(metadata) = fs::metadata(path) {
+        let mut permissions = metadata.permissions();
+        if permissions.mode() & 0o777 != 0o600 {
+            permissions.set_mode(0o600);
+            fs::set_permissions(path, permissions)?;
+        }
+        return Ok(());
+    }
+    match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+    {
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == ErrorKind::AlreadyExists => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+#[cfg(not(unix))]
+fn create_private_file(_path: &Path) -> Result<()> {
+    Ok(())
+}
+
+/// Restrict the data directory to its owner.
+#[cfg(unix)]
+fn restrict_dir(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let metadata = fs::metadata(path)?;
+    let mut permissions = metadata.permissions();
+    if permissions.mode() & 0o777 != 0o700 {
+        permissions.set_mode(0o700);
+        fs::set_permissions(path, permissions)?;
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn restrict_dir(_path: &Path) -> Result<()> {
+    Ok(())
+}
+
+fn restrict_database_files(path: &Path) -> Result<()> {
+    restrict_file(path)?;
+    for suffix in ["-wal", "-shm", "-journal"] {
+        restrict_file(&sidecar(path, suffix))?;
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn restrict_file(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let metadata = match fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    let mut permissions = metadata.permissions();
+    if permissions.mode() & 0o777 != 0o600 {
+        permissions.set_mode(0o600);
+        fs::set_permissions(path, permissions)?;
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn restrict_file(_path: &Path) -> Result<()> {
+    Ok(())
+}
+
+fn sidecar(path: &Path, suffix: &str) -> PathBuf {
+    let mut name = path.as_os_str().to_os_string();
+    name.push(suffix);
+    PathBuf::from(name)
+}
+
+fn ensure_sqlcipher(conn: &Connection) -> Result<()> {
+    match conn.query_row("PRAGMA cipher_version", [], |row| {
+        row.get::<_, Option<String>>(0)
+    }) {
+        Ok(Some(version)) if !version.trim().is_empty() => Ok(()),
+        Ok(_) | Err(rusqlite::Error::QueryReturnedNoRows) => Err(StoreError::Encryption(
+            "this build does not include SQLCipher support".to_owned(),
+        )),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn set_key_pragma(conn: &Connection, pragma: &str, key: &DatabaseKey) -> Result<()> {
+    let literal = key.sqlcipher_literal();
+    let statement = Zeroizing::new(format!("PRAGMA {pragma} = {};", literal.as_str()));
+    conn.execute_batch(&statement)?;
+    Ok(())
+}
+
+/// Apply the SQLCipher key and prove that it can read the database.
+fn prepare_connection(conn: &Connection, key: &DatabaseKey) -> Result<()> {
+    ensure_sqlcipher(conn)?;
+    set_key_pragma(conn, "key", key)?;
+    match conn.query_row("SELECT count(*) FROM sqlite_master", [], |row| {
+        row.get::<_, i64>(0)
+    }) {
+        Ok(_) => Ok(()),
+        Err(error) => Err(StoreError::Unlock(error.to_string())),
+    }
+}
+
+/// Encrypt an existing plaintext SQLite database.
+///
+/// SQLCipher can only `rekey` a database that is already encrypted, so the
+/// supported plaintext migration is to export into a new keyed database and
+/// atomically replace the original once the export is complete.
+fn encrypt_plaintext(path: &Path, key: &DatabaseKey) -> Result<()> {
+    let temporary = sidecar(path, ".encrypted");
+    match fs::remove_file(&temporary) {
+        Ok(()) => {}
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+
+    if let Err(error) = write_encrypted_copy(path, &temporary, key) {
+        let _ = fs::remove_file(&temporary);
+        return Err(error);
+    }
+
+    remove_sidecars(path)?;
+    fs::rename(&temporary, path)?;
+    restrict_database_files(path)?;
+    if database_state(path)? != DatabaseState::Encrypted {
+        return Err(StoreError::Encryption(
+            "the plaintext database was not encrypted".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn write_encrypted_copy(path: &Path, temporary: &Path, key: &DatabaseKey) -> Result<()> {
+    let conn = Connection::open(path)?;
+    ensure_sqlcipher(&conn)?;
+
+    // Switching modes checkpoints and removes any plaintext WAL that earlier
+    // Relay versions created, so the export sees a single complete database.
+    let mode: String = conn.query_row("PRAGMA journal_mode = DELETE", [], |row| row.get(0))?;
+    if !mode.eq_ignore_ascii_case("delete") {
+        return Err(StoreError::Encryption(format!(
+            "could not leave WAL mode before encryption (journal mode: {mode})"
+        )));
+    }
+
+    let version: i32 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    let temporary = temporary.to_str().ok_or_else(|| {
+        StoreError::Encryption("the database path is not valid Unicode".to_owned())
+    })?;
+    let escaped = temporary.replace('\'', "''");
+    let literal = key.sqlcipher_literal();
+    let attach = Zeroizing::new(format!(
+        "ATTACH DATABASE '{escaped}' AS encrypted KEY {};",
+        literal.as_str()
+    ));
+    conn.execute_batch(&attach)?;
+    conn.execute_batch("SELECT sqlcipher_export('encrypted');")?;
+    conn.pragma_update(Some("encrypted"), "user_version", version)?;
+    conn.execute_batch("DETACH DATABASE encrypted;")?;
+    conn.close().map_err(|(_, error)| error)?;
+
+    if database_state(Path::new(temporary))? != DatabaseState::Encrypted {
+        return Err(StoreError::Encryption(
+            "the encrypted export did not produce a SQLCipher database".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn remove_sidecars(path: &Path) -> Result<()> {
+    for suffix in ["-wal", "-shm", "-journal"] {
+        let sidecar = sidecar(path, suffix);
+        match fs::remove_file(&sidecar) {
+            Ok(()) => {}
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
 }
 
 const SUMMARY_QUERY: &str = "SELECT c.id, c.title, c.model_slug, c.created_at, c.updated_at,
