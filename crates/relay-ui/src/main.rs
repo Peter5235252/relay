@@ -7,6 +7,7 @@ mod fonts;
 mod keys;
 mod mcp;
 mod models;
+mod search;
 mod settings;
 mod sidebar;
 mod streaming;

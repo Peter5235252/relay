@@ -1073,7 +1073,7 @@ impl RelayApp {
             .with_temperature(self.settings.temperature)
             .with_max_output_tokens(self.settings.max_output_tokens)
             .with_tools(if self.settings.interaction_mode == "chat" {
-                Vec::new()
+                relay_core::chat_tool_specs()
             } else {
                 let mut specs = relay_core::tool_specs(self.settings.agent_mode);
                 specs.extend(crate::mcp::global_tools());

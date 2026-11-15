@@ -50,7 +50,7 @@ impl DelegateContext {
     }
 }
 
-fn run_local_tool(call: &ToolCall, mode: AgentMode) -> String {
+async fn run_local_tool(call: &ToolCall, mode: AgentMode) -> String {
     // Strict Plan mode: read-only for local fs/commands.
     if mode == AgentMode::Plan && !matches!(call.name.as_str(), "read_file" | "list_dir") {
         return "error: tool not allowed in Plan mode".to_owned();
@@ -131,6 +131,35 @@ fn run_local_tool(call: &ToolCall, mode: AgentMode) -> String {
                 Ok(_) => "written".to_owned(),
                 Err(e) => format!("error: {e}"),
             }
+        }
+        "web_search" => {
+            let query = call
+                .arguments
+                .get("query")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim();
+            if query.is_empty() {
+                return "error: missing query".to_owned();
+            }
+            let max = call
+                .arguments
+                .get("max_results")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(5) as usize;
+            crate::search::web_search(query, max).await
+        }
+        "fetch_url" => {
+            let url = call
+                .arguments
+                .get("url")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim();
+            if url.is_empty() {
+                return "error: missing url".to_owned();
+            }
+            crate::search::fetch_url(url).await
         }
         _ => format!("unknown tool: {}", call.name),
     }
@@ -306,7 +335,7 @@ async fn run_tool(
         }
         return run_delegate(client, call, delegate_ctx, cancel).await;
     }
-    run_local_tool(call, mode)
+    run_local_tool(call, mode).await
 }
 
 pub fn start(
@@ -368,7 +397,7 @@ pub fn start(
             // Enforce mode: drop disallowed tools in Plan.
             if mode == AgentMode::Plan {
                 tool_calls.retain(|c| {
-                    matches!(c.name.as_str(), "read_file" | "list_dir" | "delegate")
+                    matches!(c.name.as_str(), "read_file" | "list_dir" | "delegate" | "web_search" | "fetch_url")
                         || c.name.starts_with("mcp__")
                 });
             }

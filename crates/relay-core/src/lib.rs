@@ -49,7 +49,7 @@ pub use prompt::{
 pub use settings::{AppSettings, Appearance, ColorPreset, ProviderKeys, ReasoningEffort};
 pub use tool::{
     AgentMode, McpServerConfig, Tool, ToolApproval, ToolCall, ToolResult, ToolSpec,
-    is_command_nondestructive, should_auto_approve, tool_specs,
+    chat_tool_specs, is_command_nondestructive, should_auto_approve, tool_specs,
 };
 pub use usage::{CostEstimate, LongContextPricing, Pricing, TokenRates, Usage, format_tokens};
 

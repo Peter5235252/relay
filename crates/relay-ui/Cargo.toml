@@ -37,6 +37,8 @@ flate2.workspace = true
 tar.workspace = true
 serde_json.workspace = true
 portable-pty.workspace = true
+regex = "1"
+urlencoding = "2"
 
 [lints]
 workspace = true

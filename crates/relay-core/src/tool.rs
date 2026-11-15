@@ -238,7 +238,12 @@ pub struct ToolSpec {
     pub parameters: serde_json::Value,
 }
 
-/// Build the list of tool specs for the given agent mode.
+/// Build the minimal tool specs available in Chat mode (web search only).
+pub fn chat_tool_specs() -> Vec<ToolSpec> {
+    vec![web_search_spec(), fetch_url_spec()]
+}
+
+/// Build the list of tool specs for the given agent mode (Work mode).
 pub fn tool_specs(mode: AgentMode) -> Vec<ToolSpec> {
     let mut specs = vec![
         ToolSpec {
@@ -259,6 +264,8 @@ pub fn tool_specs(mode: AgentMode) -> Vec<ToolSpec> {
                 "required": ["path"]
             }),
         },
+        web_search_spec(),
+        fetch_url_spec(),
     ];
     if mode.allows_writes() {
         specs.push(ToolSpec {
@@ -296,4 +303,33 @@ pub fn tool_specs(mode: AgentMode) -> Vec<ToolSpec> {
         }),
     });
     specs
+}
+
+fn web_search_spec() -> ToolSpec {
+    ToolSpec {
+        name: "web_search".into(),
+        description: "Search the web (DuckDuckGo) and return titles, URLs, and snippets. Use for current information.".into(),
+        parameters: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "query": {"type":"string","description":"Search query"},
+                "max_results": {"type":"integer","description":"Number of results (default 5, max 10)"}
+            },
+            "required": ["query"]
+        }),
+    }
+}
+
+fn fetch_url_spec() -> ToolSpec {
+    ToolSpec {
+        name: "fetch_url".into(),
+        description: "Fetch a web page and return its text content (HTML stripped). Use to read a result.".into(),
+        parameters: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "url": {"type":"string","description":"http(s) URL to fetch"}
+            },
+            "required": ["url"]
+        }),
+    }
 }
