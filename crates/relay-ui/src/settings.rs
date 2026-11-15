@@ -1293,6 +1293,188 @@ impl SettingsView {
                  messages, so you can switch models mid-thread without losing context.",
                 &theme,
             ))
+            .child(section(
+                "Guarantees",
+                "What Relay controls — and the one thing it cannot.",
+                &theme,
+            ))
+            .child(
+                card(&theme)
+                    .gap_3()
+                    .child(check_item(
+                        "No ads",
+                        "No sponsored placements, promoted models, or paid ranking.",
+                        &theme,
+                    ))
+                    .child(check_item(
+                        "Open source, Apache-2.0",
+                        "The full source is public, with an express patent grant.",
+                        &theme,
+                    ))
+                    .child(check_item(
+                        "Non-profit project",
+                        "No company, investors, or paid Relay tier. Relay is not monetized.",
+                        &theme,
+                    ))
+                    .child(check_item(
+                        "Zero telemetry",
+                        "No analytics, crash reporting, or usage pings. Relay collects nothing, and local models send nothing.",
+                        &theme,
+                    ))
+                    .child(check_item(
+                        "Local models stay local",
+                        "Bundled Nemotron models run on this machine. Their prompts never leave it.",
+                        &theme,
+                    ))
+                    .child(check_item(
+                        "Your data stays with you",
+                        "History is a local SQLite file. API keys live in the OS keyring or your environment, never the database.",
+                        &theme,
+                    ))
+                    .child(check_item(
+                        "No middleman",
+                        "Cloud requests go straight from Relay to the provider with your own key. There is no Relay server.",
+                        &theme,
+                    ))
+                    .child(
+                        h_flex()
+                            .items_start()
+                            .gap_2()
+                            .border_t_1()
+                            .border_color(theme.border)
+                            .pt_3()
+                            .child(
+                                div()
+                                    .mt(px(1.))
+                                    .flex_shrink_0()
+                                    .child(
+                                        Icon::new(IconName::Info)
+                                            .text_color(theme.muted_foreground),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .text_xs()
+                                    .text_color(theme.muted_foreground)
+                                    .child(
+                                        "The one thing Relay cannot guarantee: what a cloud provider \
+                                         does with a prompt after it leaves this machine — \
+                                         whether they retain it or train on it. Those terms are \
+                                         theirs, not ours.",
+                                    ),
+                            ),
+                    ),
+            )
+            .child(section(
+                "Cloud models & data training",
+                "How OpenAI, Anthropic, and Google treat API data for the cloud models Relay \
+                 ships, as of November 2026. These are provider policies; Relay cannot override \
+                 them.",
+                &theme,
+            ))
+            .child(
+                card(&theme)
+                    .child(provider_note(
+                        "Google Gemini",
+                        "Gemini 4 Hydrogen · Argon · Carbon",
+                        "Paid Gemini API tier: prompts and responses are not used to improve \
+                         Google products; logs are kept briefly for abuse prevention. Unpaid tier \
+                         and AI Studio may use content to improve products, including human \
+                         review. In the EEA, Switzerland, and the UK, paid-tier data terms apply \
+                         to all Gemini API and AI Studio use.",
+                        &theme,
+                    ))
+                    .child(
+                        provider_note(
+                            "Anthropic Claude",
+                            "Claude Haiku, Sonnet, and Opus 5.5 · Fable and Mythos 5.2",
+                            "Commercial Terms: Anthropic may not train models on Customer \
+                             Content submitted through the API. Consumer Claude plans are \
+                             separate and have their own controls. Zero data retention is \
+                             available for eligible enterprise arrangements.",
+                            &theme,
+                        )
+                        .border_t_1()
+                        .border_color(theme.border)
+                        .pt_4(),
+                    )
+                    .child(
+                        provider_note(
+                            "OpenAI GPT",
+                            "GPT-6 Astra · GPT-6.1 Sol and Terra · GPT-6 Luna",
+                            "API data is not used to train or improve OpenAI models unless you \
+                             explicitly opt in (since March 1, 2023). Abuse-monitoring logs are \
+                             kept for up to 30 days, longer only when legally required; approved \
+                             organizations can enable zero data retention. ChatGPT consumer \
+                             plans differ.",
+                            &theme,
+                        )
+                        .border_t_1()
+                        .border_color(theme.border)
+                        .pt_4(),
+                    )
+                    .child(
+                        v_flex()
+                            .gap_2()
+                            .border_t_1()
+                            .border_color(theme.border)
+                            .pt_3()
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .items_center()
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(theme.muted_foreground)
+                                            .child("Official policies"),
+                                    )
+                                    .child(
+                                        Button::new("openai-policy")
+                                            .ghost()
+                                            .small()
+                                            .label("OpenAI")
+                                            .on_click(cx.listener(|_, _, _, cx| {
+                                                cx.open_url(
+                                                    "https://developers.openai.com/api/docs/guides/your-data",
+                                                );
+                                            })),
+                                    )
+                                    .child(
+                                        Button::new("anthropic-policy")
+                                            .ghost()
+                                            .small()
+                                            .label("Anthropic")
+                                            .on_click(cx.listener(|_, _, _, cx| {
+                                                cx.open_url(
+                                                    "https://www.anthropic.com/legal/commercial-terms",
+                                                );
+                                            })),
+                                    )
+                                    .child(
+                                        Button::new("gemini-policy")
+                                            .ghost()
+                                            .small()
+                                            .label("Gemini")
+                                            .on_click(cx.listener(|_, _, _, cx| {
+                                                cx.open_url("https://ai.google.dev/gemini-api/terms");
+                                            })),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(theme.muted_foreground)
+                                    .child(
+                                        "Last checked November 2026. Terms can change; the \
+                                         provider's current policy governs. Relay cannot control \
+                                         provider-side retention or training.",
+                                    ),
+                            ),
+                    ),
+            )
             .child(
                 card(&theme)
                     .child(
@@ -1324,18 +1506,6 @@ impl SettingsView {
                         h_flex()
                             .justify_between()
                             .items_center()
-                            .child(div().text_sm().font_medium().child("License"))
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(theme.muted_foreground)
-                                    .child("Apache-2.0 · patent grant included"),
-                            ),
-                    )
-                    .child(
-                        h_flex()
-                            .justify_between()
-                            .items_center()
                             .child(div().text_sm().font_medium().child("Model catalog"))
                             .child(
                                 div()
@@ -1357,10 +1527,6 @@ impl SettingsView {
                             ),
                     ),
             )
-            .child(div().text_xs().text_color(theme.muted_foreground).child(
-                "Relay never sends your API keys to any server except the provider you \
-                         selected. No telemetry is collected.",
-            ))
             .into_any_element()
     }
 }
@@ -1509,6 +1675,52 @@ fn card(theme: &Theme) -> gpui_kit::Div {
         .border_1()
         .border_color(theme.border)
         .p_4()
+}
+
+fn check_item(title: &'static str, detail: &'static str, theme: &Theme) -> gpui_kit::Div {
+    h_flex()
+        .items_start()
+        .gap_2()
+        .child(
+            div()
+                .mt(px(1.))
+                .flex_shrink_0()
+                .child(Icon::new(IconName::CircleCheck).text_color(theme.success)),
+        )
+        .child(
+            v_flex()
+                .gap_0p5()
+                .child(div().text_sm().font_medium().child(title))
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(theme.muted_foreground)
+                        .child(detail),
+                ),
+        )
+}
+
+fn provider_note(
+    provider: &'static str,
+    models: &'static str,
+    detail: &'static str,
+    theme: &Theme,
+) -> gpui_kit::Div {
+    v_flex()
+        .gap_1()
+        .child(div().text_sm().font_medium().child(provider))
+        .child(
+            div()
+                .text_xs()
+                .text_color(theme.muted_foreground)
+                .child(models),
+        )
+        .child(
+            div()
+                .text_xs()
+                .text_color(theme.muted_foreground)
+                .child(detail),
+        )
 }
 
 fn field(label: &'static str, hint: &'static str, control: impl IntoElement) -> impl IntoElement {
