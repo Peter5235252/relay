@@ -83,7 +83,7 @@ pub(crate) fn body(request: &ChatRequest) -> Value {
 /// Stream an Ollama response.
 pub(crate) async fn stream(
     http: &Client,
-    request: &ChatRequest,
+    request: &mut ChatRequest,
     events: &Sender<StreamEvent>,
     cancel: &CancellationToken,
 ) -> Result<(), ProviderError> {

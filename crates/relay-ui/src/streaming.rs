@@ -290,7 +290,7 @@ async fn run_delegate(
     let (tx, rx) = unbounded::<StreamEvent>();
     let client2 = client.clone();
     let tok = cancel.clone();
-    let jh = tokio::spawn(async move { client2.stream(&req, &tx, &tok).await });
+    let jh = tokio::spawn(async move { client2.stream(&mut req.clone(), &tx, &tok).await });
     let mut out = String::new();
     while let Ok(ev) = rx.recv().await {
         if let StreamEvent::Text(t) = ev {
@@ -360,7 +360,7 @@ pub fn start(
             let client2 = client.clone();
             let req = request.clone();
             let tok = token.clone();
-            let jh = tokio::spawn(async move { client2.stream(&req, &prov_tx, &tok).await });
+            let jh = tokio::spawn(async move { client2.stream(&mut req.clone(), &prov_tx, &tok).await });
 
             let mut tool_calls: Vec<ToolCall> = Vec::new();
             let mut pending_tool_events: Vec<ToolCall> = Vec::new();
@@ -407,10 +407,16 @@ pub fn start(
             let stream_result = jh
                 .await
                 .unwrap_or(Err(relay_providers::ProviderError::Cancelled));
-            if let Err(e) = stream_result {
-                let _ = events_tx.close();
-                let _ = error_tx.send(e.to_string()).await;
-                return;
+            match stream_result {
+                Ok(Some(id)) => {
+                    request.previous_interaction_id = Some(id);
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    let _ = events_tx.close();
+                    let _ = error_tx.send(e.to_string()).await;
+                    return;
+                }
             }
             if tool_calls.is_empty() {
                 break;

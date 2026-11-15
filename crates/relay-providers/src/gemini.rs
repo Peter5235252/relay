@@ -23,20 +23,81 @@ const API_VERSION: &str = "v1beta";
 
 /// Build the Interactions request body. Kept pure for unit tests.
 pub(crate) fn body(request: &ChatRequest) -> Value {
+    // Follow-up turn after a function call: send function_result(s) with previous_interaction_id.
+    if let Some(prev) = &request.previous_interaction_id {
+        // collect trailing Tool messages
+        let mut tool_msgs: Vec<&relay_core::RequestMessage> = Vec::new();
+        for m in request.messages.iter().rev() {
+            if m.role == relay_core::Role::Tool {
+                tool_msgs.push(m);
+            } else {
+                break;
+            }
+        }
+        tool_msgs.reverse();
+        if !tool_msgs.is_empty() {
+            // map call_id -> name from last assistant tool_calls
+            let mut name_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+            for m in request.messages.iter().rev() {
+                if m.role == relay_core::Role::Assistant {
+                    for c in &m.tool_calls {
+                        name_map.insert(c.id.clone(), c.name.clone());
+                    }
+                    break;
+                }
+            }
+            let input: Vec<Value> = tool_msgs
+                .iter()
+                .map(|m| {
+                    let call_id = m.tool_call_id.clone().unwrap_or_default();
+                    let name = name_map.get(&call_id).cloned().unwrap_or_default();
+                    json!({
+                        "type": "function_result",
+                        "name": name,
+                        "call_id": call_id,
+                        "result": { "content": [{ "type": "text", "text": m.text }] },
+                    })
+                })
+                .collect();
+            let mut body = Map::new();
+            body.insert("model".to_owned(), json!(request.model.api_id));
+            body.insert("previous_interaction_id".to_owned(), json!(prev));
+            body.insert("input".to_owned(), Value::Array(input));
+            body.insert("stream".to_owned(), json!(true));
+            if !request.tools.is_empty() {
+                let mut tools: Vec<Value> = request.tools.iter().map(|t| json!({"type":"function","name":t.name,"description":t.description,"parameters":t.parameters})).collect();
+                tools.push(json!({"type":"google_search"}));
+                body.insert("tools".to_owned(), Value::Array(tools));
+            }
+            return Value::Object(body);
+        }
+    }
+
     let input: Vec<Value> = request
         .messages
         .iter()
-        .filter(|message| !message.text.trim().is_empty())
+        .filter(|message| !message.text.trim().is_empty() || !message.tool_calls.is_empty())
         .map(|message| {
-            let step_type = match message.role {
-                relay_core::Role::Assistant => "model_output",
-                relay_core::Role::Tool => "tool",
-                _ => "user_input",
-            };
-            json!({
-                "type": step_type,
-                "content": [{ "type": "text", "text": message.text }],
-            })
+            // For assistant messages with tool calls, include function_call step
+            if message.role == relay_core::Role::Assistant && !message.tool_calls.is_empty() {
+                // Represent as model_output with tool calls handled separately; Gemini needs function_call steps.
+                // We'll emit a single model_output step for text; tool calls are sent by the model, not us.
+                let step_type = "model_output";
+                json!({
+                    "type": step_type,
+                    "content": [{ "type": "text", "text": message.text }],
+                })
+            } else {
+                let step_type = match message.role {
+                    relay_core::Role::Assistant => "model_output",
+                    relay_core::Role::Tool => "tool",
+                    _ => "user_input",
+                };
+                json!({
+                    "type": step_type,
+                    "content": [{ "type": "text", "text": message.text }],
+                })
+            }
         })
         .collect();
 
@@ -82,7 +143,6 @@ pub(crate) fn body(request: &ChatRequest) -> Value {
                 })
             })
             .collect();
-        // Enable Gemini's built-in Google Search so the model can ground answers.
         tools.push(json!({"type": "google_search"}));
         body.insert("tools".to_owned(), Value::Array(tools));
     }
@@ -92,10 +152,10 @@ pub(crate) fn body(request: &ChatRequest) -> Value {
 /// Stream a Gemini response.
 pub(crate) async fn stream(
     http: &Client,
-    request: &ChatRequest,
+    request: &mut ChatRequest,
     events: &Sender<StreamEvent>,
     cancel: &CancellationToken,
-) -> Result<(), ProviderError> {
+) -> Result<Option<String>, ProviderError> {
     let fact = request
         .api_key
         .as_ref()
@@ -130,6 +190,10 @@ pub(crate) async fn stream(
     let mut usage = Usage::default();
     let mut stop_reason = None;
     let mut finished = false;
+    let mut interaction_id: Option<String> = None;
+    let mut func_call_id: Option<String> = None;
+    let mut func_call_name: Option<String> = None;
+    let mut func_args = String::new();
 
     while let Some(chunk) = next_chunk(&mut stream, Provider::Gemini, cancel).await? {
         for event in decoder.push(&chunk) {
@@ -173,9 +237,49 @@ pub(crate) async fn stream(
                                 emit(events, StreamEvent::Thinking(text)).await?;
                             }
                         }
-                        // Thought signatures are intentionally discarded: Relay
-                        // replays history statelessly and strips reasoning.
+                        Some("arguments_delta") => {
+                            if let Some(a) = delta.get("arguments").and_then(Value::as_str) {
+                                func_args.push_str(a);
+                            }
+                        }
                         _ => {}
+                    }
+                }
+                "interaction.created" => {
+                    if let Some(id) = value.pointer("/interaction/id").and_then(Value::as_str) {
+                        interaction_id = Some(id.to_owned());
+                        request.previous_interaction_id = Some(id.to_owned());
+                    }
+                }
+                "step.start" => {
+                    if let Some(step) = value.get("step") {
+                        if step.get("type").and_then(Value::as_str) == Some("function_call") {
+                            func_call_id = step.get("id").and_then(Value::as_str).map(str::to_owned);
+                            func_call_name = step.get("name").and_then(Value::as_str).map(str::to_owned);
+                            func_args.clear();
+                            if let Some(args) = step.get("arguments") {
+                                if let Some(s) = args.as_str() {
+                                    func_args.push_str(s);
+                                } else if !args.is_null() {
+                                    func_args = args.to_string();
+                                }
+                            }
+                        }
+                    }
+                }
+                "step.stop" => {
+                    if let (Some(id), Some(name)) = (func_call_id.take(), func_call_name.take()) {
+                        let args: Value = serde_json::from_str(&func_args).unwrap_or(json!({}));
+                        func_args.clear();
+                        emit(
+                            events,
+                            StreamEvent::ToolCall(relay_core::ToolCall {
+                                id,
+                                name,
+                                arguments: args,
+                            }),
+                        )
+                        .await?;
                     }
                 }
                 "interaction.completed" => {
@@ -240,7 +344,7 @@ pub(crate) async fn stream(
         },
     )
     .await?;
-    Ok(())
+    Ok(interaction_id)
 }
 
 fn read_usage(value: &Value) -> Usage {

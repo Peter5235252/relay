@@ -44,12 +44,12 @@ fn request(model: ModelSelection, endpoint: &str, key: &str) -> ChatRequest {
 }
 
 async fn collect(
-    request: ChatRequest,
+    mut request: ChatRequest,
     cancel: CancellationToken,
 ) -> Result<Vec<StreamEvent>, ProviderError> {
     let client = ProviderClient::new().expect("client");
     let (tx, rx) = smol::channel::unbounded();
-    let result = client.stream(&request, &tx, &cancel).await;
+    let result = client.stream(&mut request, &tx, &cancel).await;
     drop(tx);
     let mut events = Vec::new();
     while let Ok(event) = rx.try_recv() {

@@ -98,16 +98,16 @@ impl ProviderClient {
     /// output. A closed receiver is treated as cancellation.
     pub async fn stream(
         &self,
-        request: &ChatRequest,
+        request: &mut ChatRequest,
         events: &Sender<StreamEvent>,
         cancel: &CancellationToken,
-    ) -> Result<(), ProviderError> {
+    ) -> Result<Option<String>, ProviderError> {
         match request.model.provider {
             Provider::Gemini => gemini::stream(&self.http, request, events, cancel).await,
-            Provider::Anthropic => anthropic::stream(&self.http, request, events, cancel).await,
-            Provider::OpenAi => openai::stream(&self.http, request, events, cancel).await,
-            Provider::Ollama => ollama::stream(&self.http, request, events, cancel).await,
-            Provider::OpenAiCompatible => local::stream(&self.http, request, events, cancel).await,
+            Provider::Anthropic => anthropic::stream(&self.http, request, events, cancel).await.map(|_| None),
+            Provider::OpenAi => openai::stream(&self.http, request, events, cancel).await.map(|_| None),
+            Provider::Ollama => ollama::stream(&self.http, request, events, cancel).await.map(|_| None),
+            Provider::OpenAiCompatible => local::stream(&self.http, request, events, cancel).await.map(|_| None),
         }
     }
 

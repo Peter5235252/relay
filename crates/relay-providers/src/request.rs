@@ -62,6 +62,8 @@ pub struct ChatRequest {
     pub endpoint: Option<String>,
     /// Tools available to the model.
     pub tools: Vec<ToolSpec>,
+    /// Gemini Interactions API: previous interaction id for multi-turn function calling.
+    pub previous_interaction_id: Option<String>,
 }
 
 impl ChatRequest {
@@ -78,6 +80,7 @@ impl ChatRequest {
             api_key: None,
             endpoint: None,
             tools: Vec::new(),
+            previous_interaction_id: None,
         }
     }
 
