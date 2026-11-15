@@ -70,7 +70,7 @@ pub(crate) fn body(request: &ChatRequest) -> Value {
         body.insert("system_instruction".to_owned(), json!(system));
     }
     if !request.tools.is_empty() {
-        let tools: Vec<Value> = request
+        let mut tools: Vec<Value> = request
             .tools
             .iter()
             .map(|t| {
@@ -82,6 +82,8 @@ pub(crate) fn body(request: &ChatRequest) -> Value {
                 })
             })
             .collect();
+        // Enable Gemini's built-in Google Search so the model can ground answers.
+        tools.push(json!({"type": "google_search"}));
         body.insert("tools".to_owned(), Value::Array(tools));
     }
     Value::Object(body)

@@ -1102,6 +1102,11 @@ impl RelayApp {
         if model.is_local() {
             system.push_str("\n\nLocal model tool-use rules: Use the provided function/tool calls exactly as specified—do not invent tool call syntax in plain text. Before claiming a file was created/changed, ensure a write tool call succeeded; before claiming contents, ensure read/list tool results show them. For Desktop on localized systems (e.g. Hungarian 'Asztal'), locate it via $HOME (e.g. run_command: echo $HOME, then list_dir) rather than guessing paths. If unsure, inspect first, then act, then verify with a tool.");
         }
+        if self.settings.interaction_mode == "chat" {
+            system.push_str("\n\nYou have access to web_search and fetch_url tools. Use web_search to find current information on the internet; use fetch_url to read a specific page. Never say you cannot access the internet or live data—use these tools instead.");
+        } else {
+            system.push_str("\n\nYou have access to tools including web_search, fetch_url, file, and terminal operations (when enabled). Use them when needed to obtain current information or perform actions. Never say you cannot access the internet or live data—use web_search instead.");
+        }
         let system_opt = if system.trim().is_empty() {
             None
         } else {
