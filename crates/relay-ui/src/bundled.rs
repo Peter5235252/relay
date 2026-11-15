@@ -101,6 +101,8 @@ pub struct BundledStatus {
     pub active_variant: Option<String>,
     pub message: String,
     pub error: Option<String>,
+    /// Download progress 0-100 when a download is in progress.
+    pub progress: Option<u32>,
 }
 
 #[derive(Default)]
@@ -195,8 +197,10 @@ async fn download_file(
         if let Ok(mut s) = state.lock() {
             if total > 0 {
                 let pct = (downloaded * 100 / total) as u32;
+                s.status.progress = Some(pct);
                 s.status.message = format!("Downloading {label}… {pct}%");
             } else {
+                s.status.progress = None;
                 s.status.message = format!("Downloading {label}… {} MB", downloaded / 1_000_000);
             }
         }
@@ -222,6 +226,7 @@ async fn ensure_llama_server(
     }
     if let Ok(mut s) = state.lock() {
         s.status.message = "Extracting llama-server…".to_owned();
+        s.status.progress = None;
     }
     let archive_path2 = archive_path.clone();
     let ldir2 = ldir.clone();
@@ -302,6 +307,7 @@ pub async fn ensure_ready(state: Arc<Mutex<BundledState>>, variant: BundledVaria
     if let Ok(mut s) = state.lock() {
         s.status.message = format!("Preparing {}…", variant.display_name());
         s.status.error = None;
+        s.status.progress = None;
     }
 
     if !mp.exists() {
@@ -368,6 +374,7 @@ pub async fn ensure_ready(state: Arc<Mutex<BundledState>>, variant: BundledVaria
             s.status.active_variant = Some(variant.id().to_owned());
             s.status.message = format!("{} ready", variant.display_name());
             s.status.error = None;
+            s.status.progress = None;
         }
     } else {
         if let Ok(mut s) = state.lock() {

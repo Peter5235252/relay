@@ -669,6 +669,7 @@ impl RelayApp {
         notice: Option<String>,
     ) -> impl IntoElement {
         let theme = cx.theme().clone();
+        let bundled_progress = self.bundled_status().progress;
         let mode = self.settings.agent_mode;
         let approval = self.settings.tool_approval;
         let outline = match mode {
@@ -734,6 +735,25 @@ impl RelayApp {
                                             this.notice = None;
                                             cx.notify();
                                         })),
+                                ),
+                        )
+                    })
+                    .when_some(bundled_progress, |this, pct| {
+                        this.child(
+                            div()
+                                .w_full()
+                                .max_w(px(900.))
+                                .mx_auto()
+                                .h(px(6.))
+                                .rounded(px(3.))
+                                .bg(theme.muted)
+                                .overflow_hidden()
+                                .child(
+                                    div()
+                                        .h_full()
+                                        .w(gpui_kit::relative(pct as f32 / 100.0))
+                                        .bg(theme.primary)
+                                        .rounded(px(3.)),
                                 ),
                         )
                     })

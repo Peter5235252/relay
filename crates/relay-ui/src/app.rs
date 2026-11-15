@@ -230,6 +230,10 @@ impl RelayApp {
         app
     }
 
+    pub(crate) fn bundled_status(&self) -> crate::bundled::BundledStatus {
+        self.bundled.lock().map(|s| s.status()).unwrap_or_default()
+    }
+
     fn selected_bundled_variant(&self) -> crate::bundled::BundledVariant {
         crate::bundled::BundledVariant::from_id(&self.settings.bundled_model_variant)
             .or_else(|| crate::bundled::BundledVariant::from_model_slug(&self.settings.local_model))
