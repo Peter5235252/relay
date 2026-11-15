@@ -1,6 +1,6 @@
 # Relay
 
-Relay is a memory-safe Rust desktop chat client that unifies Gemini, Claude,
+Relay is a memory-safe Rust desktop agentic work and chat client that unifies Gemini, Claude,
 GPT, Ollama, and OpenAI-compatible models behind a single interface.
 Built with [GPUI](https://github.com/zed-industries/zed).
 
