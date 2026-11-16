@@ -880,13 +880,23 @@ fn positional(args: &[String]) -> Vec<String> {
 
 pub fn main_help() -> &'static str {
     "\
-Relay CLI — the desktop app's full capability set, without the window.
+Relay CLI — chat with every model, manage your history, and run tools from the terminal.
 
 Usage:
-  relay-cli [chat] [options]              Interactive chat (resumes latest chat)
-  relay-cli <prompt...>                   One-shot prompt (also: ask/-p)
-  relay-cli chat --new                    Start a blank conversation
-  relay-cli -p \"question\" --json         One-shot with JSON output
+  relay-cli                               Open an interactive chat
+  relay-cli \"your question\"               Ask once and print the answer
+  relay-cli -p \"question\" --json          Machine-readable one-shot answer
+  relay-cli chat --new                    Start a fresh conversation
+
+Examples:
+  relay-cli \"summarize this repo\"
+  relay-cli models
+  relay-cli sessions list
+  relay-cli settings set temperature 0.4
+  relay-cli keys set gemini
+  relay-cli bundled status
+
+Type `relay-cli help <command>` for details, for example `relay-cli help sessions`.
 
 Commands:
   sessions   list, search, show, new, rename, pin, archive, model, delete, export

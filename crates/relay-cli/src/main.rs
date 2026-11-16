@@ -111,7 +111,7 @@ fn main() -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("error: {error}");
+            eprintln!("{}", crate::output::red(&format!("error: {error}")));
             ExitCode::FAILURE
         }
     }

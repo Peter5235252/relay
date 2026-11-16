@@ -130,7 +130,7 @@ pub async fn run_chat(ctx: &mut CliContext, options: ChatOptions) -> Result<(), 
         match send_prompt(ctx, &mut session, prompt, false).await {
             Ok(report) => {
                 if let Some(error) = report.error {
-                    eprintln!("error: {error}");
+                    eprintln!("{}", output::red(&format!("error: {error}")));
                 }
             }
             Err(error) => eprintln!("error: {error}"),
@@ -416,8 +416,6 @@ async fn stream_assistant(
         error: None,
         cancelled: false,
     };
-    let mut thinking_started = false;
-    let mut text_started = false;
 
     loop {
         tokio::select! {
@@ -430,23 +428,10 @@ async fn stream_assistant(
                     StreamEvent::Text(chunk) => {
                         message.append_text(&chunk);
                         report.text.push_str(&chunk);
-                        if !silent {
-                            print!("{chunk}");
-                            let _ = std::io::stdout().flush();
-                            text_started = true;
-                        }
                     }
                     StreamEvent::Thinking(chunk) => {
                         message.append_thinking(&chunk, model.provider.id());
                         report.thinking.push_str(&chunk);
-                        if session.show_thinking && !silent {
-                            if !thinking_started {
-                                eprint!("\n[reasoning] ");
-                                thinking_started = true;
-                            }
-                            eprint!("{}", output::dim(&chunk));
-                            let _ = std::io::stderr().flush();
-                        }
                     }
                     StreamEvent::Usage(usage) => {
                         if let Some(existing) = &mut report.usage {
@@ -459,11 +444,15 @@ async fn stream_assistant(
                     StreamEvent::ToolCall(call) => {
                         if !silent {
                             eprintln!(
-                                "\n  ↳ {}({})",
-                                call.name,
-                                output::truncate(
-                                    &serde_json::to_string(&call.arguments).unwrap_or_default(),
-                                    400
+                                "\n  {} {}",
+                                output::cyan("↳"),
+                                format!(
+                                    "{} {}",
+                                    output::bold(&call.name),
+                                    output::dim(&output::truncate(
+                                        &serde_json::to_string(&call.arguments).unwrap_or_default(),
+                                        400
+                                    ))
                                 )
                             );
                         }
@@ -475,7 +464,12 @@ async fn stream_assistant(
                     }
                     StreamEvent::ToolResult { id, name, output } => {
                         if !silent {
-                            eprintln!("  ← {name}: {}", output::truncate(&output, 400));
+                            eprintln!(
+                                "  {} {}: {}",
+                                output::dim("←"),
+                                output::cyan(&name),
+                                output::dim(&output::truncate(&output, 400))
+                            );
                         }
                         message.blocks.push(ContentBlock::ToolResult {
                             id,
@@ -503,11 +497,18 @@ async fn stream_assistant(
         }
     }
 
-    if thinking_started && !silent {
-        eprintln!();
-    }
-    if !silent && (text_started || !report.text.is_empty()) {
-        println!();
+    if !silent {
+        if session.show_thinking && !report.thinking.trim().is_empty() {
+            eprintln!("{}", output::dim("  reasoning"));
+            eprintln!("{}", output::dim(&report.thinking.trim()));
+            eprintln!();
+        }
+        if !report.text.trim().is_empty() {
+            print!("{}", output::render_markdown(&report.text));
+            if !report.text.ends_with('\n') {
+                println!();
+            }
+        }
     }
 
     let error = error_rx.recv().await.ok();
@@ -525,16 +526,19 @@ async fn stream_assistant(
                 .map(|cost| format!(" · ${cost:.4}"))
                 .unwrap_or_default();
             eprintln!(
-                "[{} · {} in · {} out{}]",
-                model.name,
-                format_tokens(u64::from(usage.input_tokens)),
-                format_tokens(u64::from(usage.output_tokens)),
-                cost
+                "{}",
+                output::dim(&format!(
+                    "[{} · {} in · {} out{}]",
+                    model.name,
+                    format_tokens(u64::from(usage.input_tokens)),
+                    format_tokens(u64::from(usage.output_tokens)),
+                    cost
+                ))
             );
         }
     }
     if let Some(error) = &report.error {
-        eprintln!("error: {error}");
+        eprintln!("{}", output::red(&format!("error: {error}")));
     }
 
     let has_content = !message.text().trim().is_empty()
@@ -1136,18 +1140,22 @@ fn render_messages_from(messages: &[ChatMessage], start: usize, show_thinking: b
         if show_thinking {
             let thinking = message.thinking();
             if !thinking.trim().is_empty() {
-                out.push_str("[reasoning]\n");
+                out.push_str(&format!("{}\n", output::dim("reasoning:")));
                 for line in thinking.trim().lines() {
                     out.push_str("  ");
-                    out.push_str(line);
+                    out.push_str(&output::dim(line));
                     out.push('\n');
                 }
             }
         }
         let text = message.text();
         if !text.trim().is_empty() {
-            out.push_str(text.trim());
-            out.push('\n');
+            if message.role == Role::Assistant {
+                out.push_str(&output::render_markdown(text.trim()));
+            } else {
+                out.push_str(text.trim());
+                out.push('\n');
+            }
         }
         for block in &message.blocks {
             match block {

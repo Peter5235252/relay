@@ -9,6 +9,10 @@ use std::process::{Command, Stdio};
 
 use chrono::{DateTime, Local, Utc};
 use serde::Serialize;
+use syntect::easy::HighlightLines;
+use syntect::highlighting::{Style as SynStyle, ThemeSet};
+use syntect::parsing::SyntaxSet;
+use syntect::util::as_24_bit_terminal_escaped;
 
 /// Print pretty JSON to stdout.
 pub fn json<T: Serialize>(value: &T) -> Result<(), String> {
@@ -161,7 +165,12 @@ pub fn copy_to_clipboard(text: &str) -> Result<(), String> {
 
 /// Dim ANSI text when the destination is a terminal.
 pub fn dim(text: &str) -> String {
-    if std::io::stderr().is_terminal() {
+    style(text, "2")
+}
+
+/// Dim text on stderr, for diagnostics while stdout carries data.
+pub fn dim_stderr(text: &str) -> String {
+    if color_enabled_stderr() {
         format!("\x1b[2m{text}\x1b[0m")
     } else {
         text.to_owned()
@@ -170,8 +179,8 @@ pub fn dim(text: &str) -> String {
 
 /// Print a section heading.
 pub fn heading(title: &str) {
-    println!("{title}");
-    println!("{}", "─".repeat(title.chars().count().max(8)));
+    println!("{}", bold(&cyan(title)));
+    println!("{}", dim(&"─".repeat(title.chars().count().max(8))));
 }
 
 /// Read one line from stdin without echo when it is a terminal.
@@ -195,4 +204,314 @@ pub fn read_secret(prompt: &str) -> Result<String, String> {
 /// Explain why an interactive confirmation was refused.
 pub fn cancelled() -> String {
     "cancelled (pass --yes to confirm non-interactively)".to_owned()
+}
+
+// MARK: Color and Markdown rendering
+
+/// Whether ANSI color should be emitted on stdout.
+pub fn color_enabled() -> bool {
+    if std::env::var_os("NO_COLOR").is_some() {
+        return false;
+    }
+    std::io::stdout().is_terminal()
+}
+
+/// Whether ANSI color should be emitted on stderr.
+pub fn color_enabled_stderr() -> bool {
+    if std::env::var_os("NO_COLOR").is_some() {
+        return false;
+    }
+    std::io::stderr().is_terminal()
+}
+
+/// Wrap text in an ANSI style when colors are enabled.
+pub fn style(text: &str, code: &str) -> String {
+    if color_enabled() {
+        format!("\x1b[{code}m{text}\x1b[0m")
+    } else {
+        text.to_owned()
+    }
+}
+
+pub fn bold(text: &str) -> String {
+    style(text, "1")
+}
+
+pub fn italic(text: &str) -> String {
+    style(text, "3")
+}
+
+pub fn red(text: &str) -> String {
+    style(text, "31")
+}
+
+pub fn green(text: &str) -> String {
+    style(text, "32")
+}
+
+pub fn yellow(text: &str) -> String {
+    style(text, "33")
+}
+
+pub fn blue(text: &str) -> String {
+    style(text, "34")
+}
+
+pub fn magenta(text: &str) -> String {
+    style(text, "35")
+}
+
+pub fn cyan(text: &str) -> String {
+    style(text, "36")
+}
+
+/// Render Markdown to terminal-friendly text with syntax highlighting.
+pub fn render_markdown(input: &str) -> String {
+    let mut out = String::new();
+    let lines: Vec<&str> = input.lines().collect();
+    let mut i = 0;
+    let mut in_code = false;
+    let mut code_lang = String::new();
+    let mut code = String::new();
+
+    while i < lines.len() {
+        let line = lines[i];
+        if let Some(rest) = line.strip_prefix("```") {
+            if !in_code {
+                in_code = true;
+                code_lang = rest.trim().to_owned();
+                code.clear();
+            } else {
+                out.push_str(&render_code_block(&code, &code_lang));
+                in_code = false;
+            }
+            i += 1;
+            continue;
+        }
+        if in_code {
+            code.push_str(line);
+            code.push('\n');
+            i += 1;
+            continue;
+        }
+
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            out.push('\n');
+            i += 1;
+            continue;
+        }
+        if trimmed == "---" || trimmed == "***" || trimmed == "___" {
+            out.push_str(&dim(&"─".repeat(48)));
+            out.push('\n');
+            i += 1;
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix("### ") {
+            out.push_str(&bold(&cyan(rest)));
+            out.push('\n');
+            i += 1;
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix("## ") {
+            out.push_str(&bold(&blue(rest)));
+            out.push('\n');
+            i += 1;
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix("# ") {
+            out.push_str(&bold(&magenta(rest)));
+            out.push('\n');
+            i += 1;
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("> ") {
+            out.push_str(&format!("{} {}\n", dim("│"), dim(rest)));
+            i += 1;
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix(">") {
+            out.push_str(&format!("{}{}\n", dim("│"), dim(rest)));
+            i += 1;
+            continue;
+        }
+
+        let indent = line.len() - line.trim_start().len();
+        let indent_str = " ".repeat(indent);
+        let body = line.trim_start();
+        if let Some(rest) = body.strip_prefix("- ").or_else(|| body.strip_prefix("* ")) {
+            out.push_str(&format!("{indent_str}{} {}\n", cyan("•"), format_inline(rest)));
+            i += 1;
+            continue;
+        }
+        if let Some(rest) = body.strip_prefix("+ ") {
+            out.push_str(&format!("{indent_str}{} {}\n", cyan("•"), format_inline(rest)));
+            i += 1;
+            continue;
+        }
+        // Numbered list.
+        let mut consumed_number = false;
+        let mut number_end = 0;
+        for (offset, ch) in body.char_indices() {
+            if ch.is_ascii_digit() {
+                number_end = offset + ch.len_utf8();
+            } else if ch == '.' && number_end > 0 {
+                let rest = body[number_end + 1..].trim_start();
+                out.push_str(&format!(
+                    "{indent_str}{} {}\n",
+                    cyan(&body[..number_end + 1]),
+                    format_inline(rest)
+                ));
+                consumed_number = true;
+                break;
+            } else {
+                break;
+            }
+        }
+        if consumed_number {
+            i += 1;
+            continue;
+        }
+
+        out.push_str(&format_inline(line));
+        out.push('\n');
+        i += 1;
+    }
+    if in_code {
+        out.push_str(&code);
+    }
+    out
+}
+
+fn render_code_block(code: &str, language: &str) -> String {
+    if !color_enabled() {
+        let mut out = String::new();
+        out.push_str(code);
+        if !code.ends_with('\n') {
+            out.push('\n');
+        }
+        return out;
+    }
+    let syntax_set = SyntaxSet::load_defaults_newlines();
+    let theme_set = ThemeSet::load_defaults();
+    let syntax = if language.is_empty() {
+        syntax_set.find_syntax_plain_text()
+    } else {
+        syntax_set
+            .find_syntax_by_token(language)
+            .or_else(|| syntax_set.find_syntax_by_extension(language))
+            .unwrap_or_else(|| syntax_set.find_syntax_plain_text())
+    };
+    let theme = &theme_set.themes["base16-ocean-dark"];
+    let mut highlighter = HighlightLines::new(syntax, theme);
+    let mut out = String::new();
+    out.push_str(&dim("┌─"));
+    if !language.is_empty() {
+        out.push_str(&format!(" {} ", language));
+    }
+    out.push_str(&dim(&"─".repeat(36)));
+    out.push('\n');
+    for line in code.lines() {
+        let ranges = highlighter.highlight_line(line, &syntax_set).unwrap_or_default();
+        out.push_str("│ ");
+        out.push_str(&as_24_bit_terminal_escaped(&ranges, true));
+        out.push('\n');
+    }
+    if code.ends_with('\n') && code.lines().last().map(|line| !line.is_empty()).unwrap_or(false) {
+        // keep the final blank line visible
+    }
+    out.push_str(&dim("└─"));
+    out.push('\n');
+    out.push_str("\x1b[0m");
+    out
+}
+
+fn format_inline(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < chars.len() {
+        // Inline code.
+        if chars[i] == '`' {
+            if let Some(end) = find_char(&chars, '`', i + 1) {
+                let code: String = chars[i + 1..end].iter().collect();
+                out.push_str(&cyan(&code));
+                i = end + 1;
+                continue;
+            }
+        }
+        // Bold with **.
+        if i + 1 < chars.len() && chars[i] == '*' && chars[i + 1] == '*' {
+            if let Some(end) = find_str(&chars, &['*', '*'], i + 2) {
+                let inner: String = chars[i + 2..end].iter().collect();
+                out.push_str(&bold(&format_inline(&inner)));
+                i = end + 2;
+                continue;
+            }
+        }
+        // Bold with __.
+        if i + 1 < chars.len() && chars[i] == '_' && chars[i + 1] == '_' {
+            if let Some(end) = find_str(&chars, &['_', '_'], i + 2) {
+                let inner: String = chars[i + 2..end].iter().collect();
+                out.push_str(&bold(&format_inline(&inner)));
+                i = end + 2;
+                continue;
+            }
+        }
+        // Italic with *.
+        if chars[i] == '*' {
+            if let Some(end) = find_char(&chars, '*', i + 1) {
+                let inner: String = chars[i + 1..end].iter().collect();
+                out.push_str(&italic(&format_inline(&inner)));
+                i = end + 1;
+                continue;
+            }
+        }
+        // Italic with _.
+        if chars[i] == '_' {
+            if let Some(end) = find_char(&chars, '_', i + 1) {
+                let inner: String = chars[i + 1..end].iter().collect();
+                out.push_str(&italic(&format_inline(&inner)));
+                i = end + 1;
+                continue;
+            }
+        }
+        // Link [text](url).
+        if chars[i] == '[' {
+            if let Some(close) = find_char(&chars, ']', i + 1) {
+                if close + 1 < chars.len() && chars[close + 1] == '(' {
+                    if let Some(end) = find_char(&chars, ')', close + 2) {
+                        let text: String = chars[i + 1..close].iter().collect();
+                        let url: String = chars[close + 2..end].iter().collect();
+                        out.push_str(&format!(
+                            "{} {}",
+                            format_inline(&text),
+                            dim(&format!("({url})"))
+                        ));
+                        i = end + 1;
+                        continue;
+                    }
+                }
+            }
+        }
+        out.push(chars[i]);
+        i += 1;
+    }
+    out
+}
+
+fn find_char(chars: &[char], needle: char, start: usize) -> Option<usize> {
+    chars[start..].iter().position(|&ch| ch == needle).map(|pos| start + pos)
+}
+
+fn find_str(chars: &[char], needle: &[char], start: usize) -> Option<usize> {
+    if needle.is_empty() || start + needle.len() > chars.len() {
+        return None;
+    }
+    for pos in start..=chars.len() - needle.len() {
+        if chars[pos..pos + needle.len()] == *needle {
+            return Some(pos);
+        }
+    }
+    None
 }
