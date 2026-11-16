@@ -61,6 +61,20 @@ pub fn resolve(slug: &str) -> ModelSelection {
         .unwrap_or_else(|| ModelSelection::ollama("llama3.2"))
 }
 
+
+fn installed_ollama_models() -> Vec<String> {
+    let out = std::process::Command::new("ollama")
+        .arg("list")
+        .output();
+    let Ok(out) = out else { return Vec::new(); };
+    let text = String::from_utf8_lossy(&out.stdout);
+    text.lines()
+        .skip(1)
+        .filter_map(|l| l.split_whitespace().next())
+        .map(|s| s.to_owned())
+        .collect()
+}
+
 /// Build grouped picker items for the configured settings.
 pub fn groups(settings: &AppSettings) -> Vec<SelectGroup<ModelChoice>> {
     let mut result: Vec<SelectGroup<ModelChoice>> = Vec::new();
@@ -81,10 +95,10 @@ pub fn groups(settings: &AppSettings) -> Vec<SelectGroup<ModelChoice>> {
         }
     }
 
-    let mut local = Vec::new();
+    let mut ready = Vec::new();
     // Bundled Nemotron variants - always available, auto-prepared on demand.
     for variant in crate::bundled::BundledVariant::all() {
-        local.push(ModelChoice {
+        ready.push(ModelChoice {
             slug: format!("local/{}", variant.id()),
             name: variant.display_name().to_owned(),
             tagline: variant.tagline().to_owned(),
@@ -93,7 +107,7 @@ pub fn groups(settings: &AppSettings) -> Vec<SelectGroup<ModelChoice>> {
     }
     if !settings.ollama_model.trim().is_empty() {
         let model = ModelSelection::ollama(&settings.ollama_model);
-        local.push(ModelChoice {
+        ready.push(ModelChoice {
             slug: model.slug.clone(),
             name: format!("{} · Ollama", model.name),
             tagline: "Running locally through Ollama.".to_owned(),
@@ -107,50 +121,44 @@ pub fn groups(settings: &AppSettings) -> Vec<SelectGroup<ModelChoice>> {
             .is_none()
     {
         let model = ModelSelection::openai_compatible(local_model);
-        local.push(ModelChoice {
+        ready.push(ModelChoice {
             slug: model.slug.clone(),
             name: format!("{} · Local endpoint", model.name),
             tagline: "Served by an OpenAI-compatible endpoint.".to_owned(),
             provider: Provider::OpenAiCompatible.label().to_owned(),
         });
     }
-    // Curated open-weight models users can run locally (via Ollama). Licenses noted per model.
-    let curated: Vec<ModelChoice> = vec![
-        ModelChoice {
-            slug: "ollama/deepseek-v4.1:flash".to_owned(),
-            name: "DeepSeek V4.1 Flash".to_owned(),
-            tagline: "Local, private. License: MIT.".to_owned(),
-            provider: "Local (Ollama)".to_owned(),
-        },
-        ModelChoice {
-            slug: "ollama/reflection-beam".to_owned(),
-            name: "Reflection Beam".to_owned(),
-            tagline: "Local, private. License: Apache 2.0.".to_owned(),
-            provider: "Local (Ollama)".to_owned(),
-        },
-        ModelChoice {
-            slug: "ollama/glm-5.3".to_owned(),
-            name: "GLM-5.3".to_owned(),
-            tagline: "Local, private. License: GLM-5.3 (MIT-like, $10B MaaS review clause).".to_owned(),
-            provider: "Local (Ollama)".to_owned(),
-        },
-        ModelChoice {
-            slug: "ollama/glm-5.3:flash".to_owned(),
-            name: "GLM-5.3 Flash".to_owned(),
-            tagline: "Local, private. License: MIT.".to_owned(),
-            provider: "Local (Ollama)".to_owned(),
-        },
-        ModelChoice {
-            slug: "ollama/mistral-small-4".to_owned(),
-            name: "Mistral Small 4".to_owned(),
-            tagline: "Local, private. License: Apache 2.0.".to_owned(),
-            provider: "Local (Ollama)".to_owned(),
-        },
+
+    // Curated open-weight models. Installed ones merge into ready.
+    let installed = installed_ollama_models();
+    let curated: Vec<(&str, &str, &str)> = vec![
+        ("deepseek-v4.1:flash", "DeepSeek V4.1 Flash", "MIT"),
+        ("reflection-beam", "Reflection Beam", "Apache 2.0"),
+        ("glm-5.3", "GLM-5.3", "GLM-5.3 (MIT-like, $10B MaaS review clause)"),
+        ("glm-5.3:flash", "GLM-5.3 Flash", "MIT"),
+        ("mistral-small-4", "Mistral Small 4", "Apache 2.0"),
     ];
-    for c in curated {
-        local.push(c);
+    let mut installable = Vec::new();
+    for (tag, name, license) in curated {
+        let choice = ModelChoice {
+            slug: format!("ollama/{}", tag),
+            name: name.to_owned(),
+            tagline: format!("Local, private. License: {}.", license),
+            provider: "Local (Ollama)".to_owned(),
+        };
+        if installed.iter().any(|m| m == tag) {
+            ready.push(choice);
+        } else {
+            installable.push(choice);
+        }
     }
-    result.push(SelectGroup::new("Local").items(local));
+
+    if !ready.is_empty() {
+        result.push(SelectGroup::new("Ready to use local models").items(ready));
+    }
+    if !installable.is_empty() {
+        result.push(SelectGroup::new("Installable local models").items(installable));
+    }
 
     result
 }
