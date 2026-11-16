@@ -179,6 +179,14 @@ impl RelayApp {
                                     variant.display_name()
                                 )))
                                 .child(
+                                    v_flex()
+                                        .gap_1()
+                                        .child(guarantee_item("No telemetry", "No analytics, crash reporting, or usage pings.", &theme))
+                                        .child(guarantee_item("Local model stays local", "The model runs on this machine; prompts never leave it.", &theme))
+                                        .child(guarantee_item("Your data stays with you", "History is a local SQLCipher-encrypted database.", &theme))
+                                        .child(guarantee_item("No middleman", "No Relay server; requests go straight to the provider.", &theme)),
+                                )
+                                .child(
                                     h_flex()
                                         .gap_2()
                                         .child(
@@ -1318,4 +1326,27 @@ fn format_cost(cost: f64) -> String {
     } else {
         format!("${cost:.5}")
     }
+}
+
+fn guarantee_item(title: &'static str, detail: &'static str, theme: &gpui_kit::component::Theme) -> gpui_kit::Div {
+    h_flex()
+        .items_start()
+        .gap_2()
+        .child(
+            div()
+                .mt(px(1.))
+                .flex_shrink_0()
+                .child(Icon::new(IconName::CircleCheck).text_color(theme.success)),
+        )
+        .child(
+            v_flex()
+                .gap_0p5()
+                .child(div().text_xs().font_medium().child(title))
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(theme.muted_foreground)
+                        .child(detail),
+                ),
+        )
 }
