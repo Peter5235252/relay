@@ -158,6 +158,64 @@ impl RelayApp {
                     ),
             )
             .child(transcript)
+            .when(self.pending_ollama_install.is_some(), |this| {
+                let tag = self.pending_ollama_install.clone().unwrap();
+                this.child(
+                    div()
+                        .max_w(px(900.))
+                        .w_full()
+                        .mx_auto()
+                        .px_6()
+                        .py_3()
+                        .rounded(theme.radius)
+                        .border_1()
+                        .border_color(theme.primary)
+                        .bg(theme.input)
+                        .child(
+                            v_flex()
+                                .gap_2()
+                                .child(div().text_sm().font_medium().child(format!(
+                                    "Install {} via Ollama? (ollama pull {})",
+                                    tag, tag
+                                )))
+                                .child(
+                                    v_flex()
+                                        .gap_1()
+                                        .child(guarantee_item("Local & private", "Runs on your machine; prompts never leave it.", &theme))
+                                        .child(guarantee_item("Open weights", "Licensed for local use; see model card.", &theme)),
+                                )
+                                .child(
+                                    h_flex()
+                                        .gap_2()
+                                        .child(
+                                            Button::new("confirm-ollama-install")
+                                                .primary()
+                                                .label("Install")
+                                                .on_click(cx.listener(move |this, _, _, cx| {
+                                                    let t = tag.clone();
+                                                    this.runtime.spawn(async move {
+                                                        let _ = std::process::Command::new("ollama")
+                                                            .arg("pull")
+                                                            .arg(&t)
+                                                            .status();
+                                                    });
+                                                    this.pending_ollama_install = None;
+                                                    cx.notify();
+                                                })),
+                                        )
+                                        .child(
+                                            Button::new("cancel-ollama-install")
+                                                .ghost()
+                                                .label("Cancel")
+                                                .on_click(cx.listener(|this, _, _, cx| {
+                                                    this.pending_ollama_install = None;
+                                                    cx.notify();
+                                                })),
+                                        ),
+                                ),
+                        )
+                )
+            })
             .when(self.pending_bundled_download.is_some(), |this| {
                 let variant = self.pending_bundled_download.unwrap();
                 this.child(

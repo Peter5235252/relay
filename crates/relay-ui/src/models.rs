@@ -114,43 +114,43 @@ pub fn groups(settings: &AppSettings) -> Vec<SelectGroup<ModelChoice>> {
             provider: Provider::OpenAiCompatible.label().to_owned(),
         });
     }
-    result.push(SelectGroup::new("Local").items(local));
-
-    // Curated open-weight models users can run locally (via Ollama or a
-    // local OpenAI-compatible endpoint). Licenses noted per model.
-    let suggested: Vec<ModelChoice> = vec![
+    // Curated open-weight models users can run locally (via Ollama). Licenses noted per model.
+    let curated: Vec<ModelChoice> = vec![
         ModelChoice {
             slug: "ollama/deepseek-v4.1:flash".to_owned(),
             name: "DeepSeek V4.1 Flash".to_owned(),
-            tagline: "Local, private. License: MIT. Run: ollama pull deepseek-v4.1:flash".to_owned(),
+            tagline: "Local, private. License: MIT.".to_owned(),
             provider: "Local (Ollama)".to_owned(),
         },
         ModelChoice {
             slug: "ollama/reflection-beam".to_owned(),
             name: "Reflection Beam".to_owned(),
-            tagline: "Local, private. License: Apache 2.0. Run: ollama pull reflection-beam".to_owned(),
+            tagline: "Local, private. License: Apache 2.0.".to_owned(),
             provider: "Local (Ollama)".to_owned(),
         },
         ModelChoice {
             slug: "ollama/glm-5.3".to_owned(),
             name: "GLM-5.3".to_owned(),
-            tagline: "Local, private. License: GLM-5.3 (MIT-like, $10B MaaS review clause). Run: ollama pull glm-5.3".to_owned(),
+            tagline: "Local, private. License: GLM-5.3 (MIT-like, $10B MaaS review clause).".to_owned(),
             provider: "Local (Ollama)".to_owned(),
         },
         ModelChoice {
             slug: "ollama/glm-5.3:flash".to_owned(),
             name: "GLM-5.3 Flash".to_owned(),
-            tagline: "Local, private. License: MIT. Run: ollama pull glm-5.3:flash".to_owned(),
+            tagline: "Local, private. License: MIT.".to_owned(),
             provider: "Local (Ollama)".to_owned(),
         },
         ModelChoice {
             slug: "ollama/mistral-small-4".to_owned(),
             name: "Mistral Small 4".to_owned(),
-            tagline: "Local, private. License: Apache 2.0. Run: ollama pull mistral-small-4".to_owned(),
+            tagline: "Local, private. License: Apache 2.0.".to_owned(),
             provider: "Local (Ollama)".to_owned(),
         },
     ];
-    result.push(SelectGroup::new("Suggested local models").items(suggested));
+    for c in curated {
+        local.push(c);
+    }
+    result.push(SelectGroup::new("Local").items(local));
 
     result
 }

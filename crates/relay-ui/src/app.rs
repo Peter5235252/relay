@@ -129,6 +129,7 @@ pub struct RelayApp {
     bundled_needs_refresh: bool,
     pub(crate) pending_approval: Option<crate::streaming::ApprovalRequest>,
     pub(crate) pending_bundled_download: Option<crate::bundled::BundledVariant>,
+    pub(crate) pending_ollama_install: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -231,6 +232,7 @@ impl RelayApp {
             bundled_needs_refresh: false,
             pending_approval: None,
             pending_bundled_download: None,
+            pending_ollama_install: None,
             _subscriptions: Vec::new(),
         };
 
@@ -837,6 +839,14 @@ impl RelayApp {
             // Strictly opt-in: ask before downloading.
             self.pending_bundled_download = Some(variant);
             cx.notify();
+        } else if let Some(tag) = slug.strip_prefix("ollama/") {
+            let curated = ["deepseek-v4.1:flash", "reflection-beam", "glm-5.3", "glm-5.3:flash", "mistral-small-4"];
+            if curated.contains(&tag) {
+                self.pending_ollama_install = Some(tag.to_owned());
+                self.settings.ollama_model = tag.to_owned();
+                self.persist_settings();
+                cx.notify();
+            }
         }
         self.rebuild_reasoning_select(window, cx);
         cx.notify();
