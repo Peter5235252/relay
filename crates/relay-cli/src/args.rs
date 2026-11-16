@@ -26,6 +26,7 @@ pub enum Command {
     Web { query: String, json: bool },
     Fetch { url: String },
     Shell,
+    Clear,
     Status { json: bool },
     About { json: bool },
     Help(Option<String>),
@@ -239,6 +240,7 @@ pub fn parse_from(args: Vec<String>) -> Result<Command, String> {
             None => Err("Usage: relay-cli fetch <url>".to_owned()),
         },
         "shell" | "terminal" => Ok(Command::Shell),
+        "clear" | "cls" | "relay-clear" => Ok(Command::Clear),
         "status" => Ok(Command::Status {
             json: has_flag(rest, "--json"),
         }),
@@ -290,7 +292,7 @@ fn parse_chat(args: &[String]) -> Result<(ChatOptions, Option<String>), String> 
             break;
         }
         let (name, inline) = split_option(arg);
-        let mut take_value = |index: &mut usize| -> Result<String, String> {
+        let take_value = |index: &mut usize| -> Result<String, String> {
             if let Some(value) = inline {
                 return Ok(value.to_owned());
             }
@@ -895,6 +897,7 @@ Examples:
   relay-cli settings set temperature 0.4
   relay-cli keys set gemini
   relay-cli bundled status
+  relay-cli clear
 
 Type `relay-cli help <command>` for details, for example `relay-cli help sessions`.
 
@@ -912,6 +915,7 @@ Commands:
   web        Search the web (DuckDuckGo, keyless)
   fetch      Fetch a URL as readable text
   shell      Open your shell (same terminal capability as the app)
+  clear      Clear the terminal view (alias: relay-clear)
   status     Connectivity, model, keys, storage, and local runtime status
   about      Version, license, privacy guarantees, project URL
   help       Show this help; `help <command>` for details
@@ -961,6 +965,7 @@ Interactive commands:
   /delete               Delete the current conversation (asks first)
   /export [file]        Export the conversation as Markdown
   /copy [n|last]        Copy a message to the clipboard
+  /clear                Clear the screen and show the header again
   /settings             Show settings
   /presets              List personality presets
   /preset <id>          Use a personality preset
@@ -1107,8 +1112,18 @@ pub fn help_for(topic: &str) -> &'static str {
         "mcp" => mcp_help(),
         "bundled" => bundled_help(),
         "ollama" => ollama_help(),
+        "clear" | "cls" | "relay-clear" => clear_help(),
         _ => main_help(),
     }
+}
+
+pub fn clear_help() -> &'static str {
+    "\
+Usage: relay-cli clear    (also: relay-clear)
+
+Clears the visible screen and scrollback without touching your conversation.
+Inside the interactive chat, /clear does the same and reprints the header.
+"
 }
 
 #[cfg(test)]
@@ -1144,6 +1159,18 @@ mod tests {
             }
             other => panic!("unexpected {other:?}"),
         }
+    }
+
+    #[test]
+    fn parses_clear_command() {
+        assert!(matches!(
+            parse_from(vec!["clear".to_owned()]).expect("parse"),
+            Command::Clear
+        ));
+        assert!(matches!(
+            parse_from(vec!["relay-clear".to_owned()]).expect("parse"),
+            Command::Clear
+        ));
     }
 
     #[test]

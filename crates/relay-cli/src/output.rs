@@ -10,7 +10,7 @@ use std::process::{Command, Stdio};
 use chrono::{DateTime, Local, Utc};
 use serde::Serialize;
 use syntect::easy::HighlightLines;
-use syntect::highlighting::{Style as SynStyle, ThemeSet};
+use syntect::highlighting::ThemeSet;
 use syntect::parsing::SyntaxSet;
 use syntect::util::as_24_bit_terminal_escaped;
 
@@ -55,10 +55,10 @@ pub fn table(headers: &[&str], rows: &[Vec<String>]) {
     line(
         &headers
             .iter()
-            .map(|header| (*header).to_owned())
+            .map(|header| bold(header))
             .collect::<Vec<_>>(),
     );
-    let underline: Vec<String> = widths.iter().map(|size| "─".repeat(*size)).collect();
+    let underline: Vec<String> = widths.iter().map(|size| dim(&"─".repeat(*size))).collect();
     line(&underline);
     for row in rows {
         line(row);
@@ -168,19 +168,16 @@ pub fn dim(text: &str) -> String {
     style(text, "2")
 }
 
-/// Dim text on stderr, for diagnostics while stdout carries data.
-pub fn dim_stderr(text: &str) -> String {
-    if color_enabled_stderr() {
-        format!("\x1b[2m{text}\x1b[0m")
-    } else {
-        text.to_owned()
-    }
-}
-
 /// Print a section heading.
 pub fn heading(title: &str) {
     println!("{}", bold(&cyan(title)));
     println!("{}", dim(&"─".repeat(title.chars().count().max(8))));
+}
+
+/// Clear the visible screen and the terminal's scrollback.
+pub fn clear_screen() {
+    print!("\x1b[2J\x1b[3J\x1b[H");
+    let _ = std::io::stdout().flush();
 }
 
 /// Read one line from stdin without echo when it is a terminal.
@@ -216,14 +213,6 @@ pub fn color_enabled() -> bool {
     std::io::stdout().is_terminal()
 }
 
-/// Whether ANSI color should be emitted on stderr.
-pub fn color_enabled_stderr() -> bool {
-    if std::env::var_os("NO_COLOR").is_some() {
-        return false;
-    }
-    std::io::stderr().is_terminal()
-}
-
 /// Wrap text in an ANSI style when colors are enabled.
 pub fn style(text: &str, code: &str) -> String {
     if color_enabled() {
@@ -247,10 +236,6 @@ pub fn red(text: &str) -> String {
 
 pub fn green(text: &str) -> String {
     style(text, "32")
-}
-
-pub fn yellow(text: &str) -> String {
-    style(text, "33")
 }
 
 pub fn blue(text: &str) -> String {
@@ -340,12 +325,20 @@ pub fn render_markdown(input: &str) -> String {
         let indent_str = " ".repeat(indent);
         let body = line.trim_start();
         if let Some(rest) = body.strip_prefix("- ").or_else(|| body.strip_prefix("* ")) {
-            out.push_str(&format!("{indent_str}{} {}\n", cyan("•"), format_inline(rest)));
+            out.push_str(&format!(
+                "{indent_str}{} {}\n",
+                cyan("•"),
+                format_inline(rest)
+            ));
             i += 1;
             continue;
         }
         if let Some(rest) = body.strip_prefix("+ ") {
-            out.push_str(&format!("{indent_str}{} {}\n", cyan("•"), format_inline(rest)));
+            out.push_str(&format!(
+                "{indent_str}{} {}\n",
+                cyan("•"),
+                format_inline(rest)
+            ));
             i += 1;
             continue;
         }
@@ -402,7 +395,13 @@ fn render_code_block(code: &str, language: &str) -> String {
             .or_else(|| syntax_set.find_syntax_by_extension(language))
             .unwrap_or_else(|| syntax_set.find_syntax_plain_text())
     };
-    let theme = &theme_set.themes["base16-ocean-dark"];
+    let Some(theme) = theme_set
+        .themes
+        .get("base16-ocean.dark")
+        .or_else(|| theme_set.themes.values().next())
+    else {
+        return format!("{code}\n");
+    };
     let mut highlighter = HighlightLines::new(syntax, theme);
     let mut out = String::new();
     out.push_str(&dim("┌─"));
@@ -412,12 +411,20 @@ fn render_code_block(code: &str, language: &str) -> String {
     out.push_str(&dim(&"─".repeat(36)));
     out.push('\n');
     for line in code.lines() {
-        let ranges = highlighter.highlight_line(line, &syntax_set).unwrap_or_default();
+        let ranges = highlighter
+            .highlight_line(line, &syntax_set)
+            .unwrap_or_default();
         out.push_str("│ ");
         out.push_str(&as_24_bit_terminal_escaped(&ranges, true));
         out.push('\n');
     }
-    if code.ends_with('\n') && code.lines().last().map(|line| !line.is_empty()).unwrap_or(false) {
+    if code.ends_with('\n')
+        && code
+            .lines()
+            .last()
+            .map(|line| !line.is_empty())
+            .unwrap_or(false)
+    {
         // keep the final blank line visible
     }
     out.push_str(&dim("└─"));
@@ -501,7 +508,10 @@ fn format_inline(text: &str) -> String {
 }
 
 fn find_char(chars: &[char], needle: char, start: usize) -> Option<usize> {
-    chars[start..].iter().position(|&ch| ch == needle).map(|pos| start + pos)
+    chars[start..]
+        .iter()
+        .position(|&ch| ch == needle)
+        .map(|pos| start + pos)
 }
 
 fn find_str(chars: &[char], needle: &[char], start: usize) -> Option<usize> {

@@ -9,7 +9,6 @@ use std::process::ExitCode;
 
 use crate::args::Command;
 use commands::CliContext;
-use relay_engine::bundled;
 use relay_store::Store;
 
 #[cfg(unix)]
@@ -34,6 +33,11 @@ fn main() -> ExitCode {
     };
 
     restrict_umask();
+
+    if matches!(&command, Command::Clear) {
+        output::clear_screen();
+        return ExitCode::SUCCESS;
+    }
 
     let filter =
         tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "warn".into());

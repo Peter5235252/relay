@@ -90,7 +90,6 @@ impl BundledVariant {
 pub const DEFAULT_VARIANT: BundledVariant = BundledVariant::Standard;
 pub const PORT: u16 = 11435;
 
-const LLAMA_TAG: &str = "b12383";
 const LLAMA_ARCHIVE: &str = "llama-b12383-bin-ubuntu-vulkan-x64.tar.gz";
 const LLAMA_URL: &str = "https://github.com/ggml-org/llama.cpp/releases/download/b12383/llama-b12383-bin-ubuntu-vulkan-x64.tar.gz";
 

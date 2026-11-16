@@ -1077,10 +1077,10 @@ impl RelayApp {
             &self.chat.presets,
             &memories,
         );
-        eprintln!(
-            "RELAY TRACE generate: mode={} tools={}",
-            self.settings.interaction_mode,
-            request.tools.len()
+        tracing::debug!(
+            mode = %self.settings.interaction_mode,
+            tools = request.tools.len(),
+            "generating reply"
         );
 
         let assistant = ChatMessage::assistant(model.slug.clone(), Vec::new(), None);

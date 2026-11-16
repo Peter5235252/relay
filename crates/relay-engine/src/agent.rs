@@ -68,6 +68,19 @@ pub fn provider_endpoint(settings: &AppSettings, model: &ModelSelection) -> Opti
     }
 }
 
+/// Context window that a request actually has to fit into.
+///
+/// The bundled Nemotron server is launched with the user's `-c` value, which
+/// is usually much smaller than the model's native window. Requests and status
+/// meters must use that configured size rather than the generic local default.
+pub fn context_window(settings: &AppSettings, model: &ModelSelection) -> u32 {
+    if crate::bundled::BundledVariant::from_model_slug(&model.slug).is_some() {
+        settings.bundled_context_size.max(512)
+    } else {
+        model.context_window
+    }
+}
+
 /// Build the complete provider request for one turn.
 ///
 /// `messages` is canonical history (including the just-saved user message).
@@ -82,8 +95,11 @@ pub fn prepare_request(
 ) -> ChatRequest {
     let reasoning = effective_reasoning(settings, model);
     let tools = tools_for(settings);
+    let context_window = context_window(settings, model);
 
-    let mut request = ChatRequest::new(model.clone(), Vec::new())
+    let mut request_model = model.clone();
+    request_model.context_window = context_window;
+    let mut request = ChatRequest::new(request_model, Vec::new())
         .with_reasoning(reasoning)
         .with_temperature(settings.temperature)
         .with_max_output_tokens(settings.max_output_tokens)
@@ -124,7 +140,7 @@ pub fn prepare_request(
     request = request.with_system_prompt(system_opt.clone());
     request.messages = fit_history(
         request_history(messages),
-        model.context_window,
+        context_window,
         request.output_limit(),
         system_opt.as_deref(),
     );
@@ -169,6 +185,18 @@ mod tests {
             .collect();
         assert!(names.contains(&"read_file".to_owned()));
         assert!(!names.contains(&"write_file".to_owned()));
+    }
+
+    #[test]
+    fn bundled_model_uses_configured_context_window() {
+        let settings = AppSettings {
+            bundled_context_size: 4_096,
+            ..Default::default()
+        };
+        let bundled = resolve_model("local/Nemotron-3.5-Bolt-E4B-Q4_K_M");
+        assert_eq!(context_window(&settings, &bundled), 4_096);
+        let cloud = model();
+        assert_eq!(context_window(&settings, &cloud), cloud.context_window);
     }
 
     #[test]

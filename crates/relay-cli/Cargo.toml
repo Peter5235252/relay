@@ -12,6 +12,10 @@ description = "Relay command-line client with the desktop app's full capability 
 name = "relay-cli"
 path = "src/main.rs"
 
+[[bin]]
+name = "relay-clear"
+path = "src/bin/relay-clear.rs"
+
 [dependencies]
 relay-core.workspace = true
 relay-engine.workspace = true

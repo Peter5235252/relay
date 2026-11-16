@@ -350,10 +350,10 @@ pub fn start(
     approval: ToolApproval,
     delegate_ctx: DelegateContext,
 ) -> Result<StartedStream, String> {
-    eprintln!(
-        "RELAY TRACE start: mode={:?} tools={}",
-        mode,
-        request.tools.len()
+    tracing::debug!(
+        mode = ?mode,
+        tools = request.tools.len(),
+        "starting agent stream"
     );
     let client = ProviderClient::new().map_err(|e| e.to_string())?;
     let (events_tx, events_rx) = unbounded::<StreamEvent>();
@@ -415,7 +415,7 @@ pub fn start(
                 });
             }
             for c in &tool_calls {
-                eprintln!("RELAY TRACE tool_call emitted: {}", c.name);
+                tracing::debug!(tool = %c.name, "agent requested a tool");
                 let _ = events_tx.send(StreamEvent::ToolCall(c.clone())).await;
             }
             let stream_result = jh
@@ -458,10 +458,10 @@ pub fn start(
                 }
                 let output = if allowed {
                     let o = run_tool(&client, call, mode, &delegate_ctx, &token).await;
-                    eprintln!(
-                        "RELAY TRACE tool result ({}): {}",
-                        call.name,
-                        o.chars().take(120).collect::<String>()
+                    tracing::debug!(
+                        tool = %call.name,
+                        preview = %o.chars().take(120).collect::<String>(),
+                        "agent tool finished"
                     );
                     o
                 } else {

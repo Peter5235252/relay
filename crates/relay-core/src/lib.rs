@@ -51,7 +51,10 @@ pub use tool::{
     AgentMode, McpServerConfig, Tool, ToolApproval, ToolCall, ToolResult, ToolSpec,
     chat_tool_specs, is_command_nondestructive, should_auto_approve, tool_specs,
 };
-pub use usage::{CostEstimate, LongContextPricing, Pricing, TokenRates, Usage, format_tokens};
+pub use usage::{
+    CostEstimate, LongContextPricing, Pricing, TokenRates, Usage, format_tokens,
+    format_tokens_exact,
+};
 
 /// Crate version, useful for the About panel and diagnostics.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

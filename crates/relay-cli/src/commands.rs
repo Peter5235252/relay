@@ -13,7 +13,7 @@ use relay_core::{
     AgentMode, AppSettings, ColorPreset, ConversationSummary, McpServerConfig, PersonalityPreset,
     Provider, ReasoningEffort, ToolApproval, models,
 };
-use relay_engine::{agent, bundled, keys, local, mcp, memory, search};
+use relay_engine::{agent, bundled, keys, local, mcp, search};
 use relay_store::Store;
 use serde_json::{Value, json};
 
@@ -52,6 +52,7 @@ impl CliContext {
     }
 
     /// Reload settings changed by another Relay process.
+    #[allow(dead_code)]
     pub fn reload(&mut self) -> Result<(), String> {
         self.settings = self
             .store
@@ -97,6 +98,10 @@ pub async fn dispatch(command: Command, ctx: &mut CliContext) -> Result<(), Stri
             Ok(())
         }
         Command::Shell => shell(),
+        Command::Clear => {
+            output::clear_screen();
+            Ok(())
+        }
         Command::Status { json } => status(ctx, json).await,
         Command::About { json } => about(json),
         Command::Help(topic) => {
@@ -209,7 +214,10 @@ fn sessions(ctx: &mut CliContext, command: SessionsCommand) -> Result<(), String
                 output::local_time(summary.updated_at)
             );
             println!();
-            print!("{}", chat::render_messages(&messages, thinking));
+            print!(
+                "{}",
+                chat::render_messages(&messages, thinking, &ctx.settings)
+            );
             Ok(())
         }
         SessionsCommand::New { model } => {
@@ -575,7 +583,7 @@ fn model(ctx: &mut CliContext, slug: Option<String>) -> Result<(), String> {
         "{} · {} · {} context",
         current.name,
         current.provider.label(),
-        output::tokens(current.context_window as u64)
+        relay_core::format_tokens_exact(u64::from(agent::context_window(&ctx.settings, &current)))
     );
     Ok(())
 }

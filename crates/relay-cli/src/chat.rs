@@ -8,8 +8,8 @@
 use std::io::{IsTerminal as _, Read as _, Write};
 
 use relay_core::{
-    AgentMode, ChatMessage, ContentBlock, ConversationSummary, ModelSelection, Provider,
-    ReasoningEffort, Role, ToolApproval, Usage, format_tokens,
+    AgentMode, AppSettings, ChatMessage, ContentBlock, ConversationSummary, ModelSelection,
+    Provider, ReasoningEffort, Role, ToolApproval, Usage, estimate_tokens, format_tokens_exact,
 };
 use relay_engine::{agent, bundled, keys, local, mcp, memory, search, streaming};
 use relay_providers::StreamEvent;
@@ -100,7 +100,7 @@ pub async fn run_chat(ctx: &mut CliContext, options: ChatOptions) -> Result<(), 
         let start = session.messages.len().saturating_sub(10);
         print!(
             "{}",
-            render_messages_from(&session.messages, start, show_thinking)
+            render_messages_from(&session.messages, start, show_thinking, &ctx.settings)
         );
         if start > 0 {
             println!("({start} earlier messages hidden; use /show all to see them)");
@@ -110,7 +110,7 @@ pub async fn run_chat(ctx: &mut CliContext, options: ChatOptions) -> Result<(), 
     spawn_auto_summary(ctx);
 
     loop {
-        let prompt = match read_input("› ")? {
+        let prompt = match read_input("You ❯ ")? {
             Some(prompt) => prompt,
             None => break,
         };
@@ -284,34 +284,61 @@ fn session_from_summary(
 
 fn print_banner(ctx: &CliContext, session: &ChatSession) {
     let model = agent::resolve_model(&session.model_slug);
-    println!("Relay CLI {} · {}", env!("CARGO_PKG_VERSION"), model.name);
+    let window = agent::context_window(&ctx.settings, &model);
     println!(
-        "{} · {} · reasoning {} · approval {}",
-        if ctx.settings.interaction_mode == "chat" {
-            "Chat"
-        } else {
-            "Work"
-        },
-        ctx.settings.agent_mode.label(),
-        ctx.settings.reasoning.label(),
-        ctx.settings.tool_approval.label()
+        "{} {}",
+        output::bold("Relay"),
+        output::dim(&format!("CLI {}", env!("CARGO_PKG_VERSION")))
+    );
+    println!(
+        "{} · {} context",
+        output::bold(&model.name),
+        output::tokens(u64::from(window))
+    );
+    println!(
+        "{}",
+        output::dim(&format!(
+            "{} · {} · reasoning {} · approval {}",
+            if ctx.settings.interaction_mode == "chat" {
+                "Chat"
+            } else {
+                "Work"
+            },
+            ctx.settings.agent_mode.label(),
+            ctx.settings.reasoning.label(),
+            ctx.settings.tool_approval.label()
+        ))
     );
     match &session.conversation_id {
         Some(id) => println!(
-            "Session {} · “{}” · {} messages",
-            output::short_id(id),
-            session.title,
-            session.messages.len()
+            "{}",
+            output::dim(&format!(
+                "Session {} · “{}” · {} messages",
+                output::short_id(id),
+                session.title,
+                session.messages.len()
+            ))
         ),
-        None => println!("New conversation · the first message creates it"),
+        None => println!(
+            "{}",
+            output::dim("New conversation · the first message creates it")
+        ),
     }
-    println!("Type /help for commands. Ctrl+C stops a reply.");
+    println!();
+    println!(
+        "{}",
+        output::dim("Type a message and press Enter, or /help for commands.")
+    );
+    println!(
+        "{}",
+        output::dim("/clear tidies the screen · /quit exits · Ctrl+C stops a reply")
+    );
     println!();
 }
 
 fn read_input(prompt: &str) -> Result<Option<String>, String> {
     let mut collected = String::new();
-    print!("{prompt}");
+    print!("{}", output::bold(&output::cyan(prompt)));
     let _ = std::io::stdout().flush();
     loop {
         let mut line = String::new();
@@ -400,14 +427,22 @@ async fn stream_assistant(
     .map_err(|error| format!("could not start the request: {error}"))?;
 
     let streaming::StartedStream {
-        mut events,
-        error: mut error_rx,
-        mut approvals,
+        events,
+        error: error_rx,
+        approvals,
         cancel,
     } = started;
     let mut approvals_open = true;
 
     let mut message = ChatMessage::assistant(model.slug.clone(), Vec::new(), None);
+    if !silent {
+        println!();
+        eprintln!(
+            "{} {}",
+            output::green("◆"),
+            output::bold(&format!("Relay · {}", model.name))
+        );
+    }
     let mut report = TurnReport {
         text: String::new(),
         thinking: String::new(),
@@ -497,30 +532,75 @@ async fn stream_assistant(
         }
     }
 
-    if !silent {
-        if session.show_thinking && !report.thinking.trim().is_empty() {
-            eprintln!("{}", output::dim("  reasoning"));
-            eprintln!("{}", output::dim(&report.thinking.trim()));
-            eprintln!();
-        }
-        if !report.text.trim().is_empty() {
-            print!("{}", output::render_markdown(&report.text));
-            if !report.text.ends_with('\n') {
-                println!();
-            }
-        }
-    }
-
-    let error = error_rx.recv().await.ok();
-    if let Some(error) = error
-        && !report.cancelled
-    {
-        message.error = Some(error.clone());
-        report.error = Some(error);
-    }
     if let Some(usage) = report.usage {
         report.cost = model.estimate_cost(&usage);
-        if !silent {
+    }
+
+    if !silent {
+        let has_text = !report.text.trim().is_empty();
+        let has_thinking = session.show_thinking && !report.thinking.trim().is_empty();
+        if has_text || has_thinking {
+            if has_thinking {
+                eprintln!("{}", output::dim("  reasoning"));
+                for line in report.thinking.trim().lines() {
+                    eprintln!("  {}", output::dim(line));
+                }
+                eprintln!();
+            }
+            if has_text {
+                print!("{}", output::render_markdown(&report.text));
+                if !report.text.ends_with('\n') {
+                    println!();
+                }
+            }
+
+            let estimated = session
+                .messages
+                .iter()
+                .map(estimate_message_tokens)
+                .sum::<u64>()
+                + estimate_message_tokens(&message);
+            let used = report
+                .usage
+                .map(|usage| usage.total_tokens())
+                .unwrap_or(estimated);
+            let window = agent::context_window(&ctx.settings, model);
+            let percent = if window > 0 {
+                used as f64 / f64::from(window) * 100.0
+            } else {
+                0.0
+            };
+            let percent_label = if used > 0 && percent < 0.05 {
+                "<0.1%".to_owned()
+            } else {
+                format!("{percent:.1}%")
+            };
+            let mut total_in = 0u64;
+            let mut total_out = 0u64;
+            for previous in &session.messages {
+                if let Some(usage) = previous.usage {
+                    total_in += u64::from(usage.input_tokens);
+                    total_out += u64::from(usage.output_tokens);
+                }
+            }
+            if let Some(usage) = report.usage {
+                total_in += u64::from(usage.input_tokens);
+                total_out += u64::from(usage.output_tokens);
+            }
+            let session_tokens = (total_in + total_out).max(estimated);
+            let session_label = if total_in + total_out > 0 {
+                format!(
+                    "session ~{} tokens · {} in / {} out",
+                    output::tokens(session_tokens),
+                    output::tokens(total_in),
+                    output::tokens(total_out)
+                )
+            } else {
+                format!(
+                    "session ~{} tokens (estimated)",
+                    output::tokens(session_tokens)
+                )
+            };
             let cost = report
                 .cost
                 .map(|cost| format!(" · ${cost:.4}"))
@@ -528,17 +608,23 @@ async fn stream_assistant(
             eprintln!(
                 "{}",
                 output::dim(&format!(
-                    "[{} · {} in · {} out{}]",
-                    model.name,
-                    format_tokens(u64::from(usage.input_tokens)),
-                    format_tokens(u64::from(usage.output_tokens)),
-                    cost
+                    "  ~{} / {} context ({percent_label}) · {session_label}{cost}",
+                    output::tokens(used),
+                    format_tokens_exact(u64::from(window)),
                 ))
             );
+            eprintln!();
         }
     }
-    if let Some(error) = &report.error {
-        eprintln!("{}", output::red(&format!("error: {error}")));
+
+    // The caller reports `report.error` once, so errors are not printed twice
+    // by the REPL and the top-level dispatcher.
+    let error = error_rx.recv().await.ok();
+    if let Some(error) = error
+        && !report.cancelled
+    {
+        message.error = Some(error.clone());
+        report.error = Some(error);
     }
 
     let has_content = !message.text().trim().is_empty()
@@ -585,6 +671,10 @@ async fn run_slash(
     };
     match name.as_str() {
         "help" | "?" => print!("{}", crate::args::chat_help()),
+        "clear" | "cls" => {
+            output::clear_screen();
+            print_banner(ctx, session);
+        }
         "quit" | "exit" | "q" => return Ok(Flow::Quit),
         "new" => {
             *session = ChatSession {
@@ -645,7 +735,7 @@ async fn run_slash(
             println!();
             print!(
                 "{}",
-                render_messages(&session.messages, session.show_thinking)
+                render_messages(&session.messages, session.show_thinking, &ctx.settings)
             );
         }
         "show" => {
@@ -655,14 +745,19 @@ async fn run_slash(
                 if rest.eq_ignore_ascii_case("all") {
                     print!(
                         "{}",
-                        render_messages(&session.messages, session.show_thinking)
+                        render_messages(&session.messages, session.show_thinking, &ctx.settings)
                     );
                 } else {
                     let count = rest.parse::<usize>().unwrap_or(10);
                     let start = session.messages.len().saturating_sub(count);
                     print!(
                         "{}",
-                        render_messages_from(&session.messages, start, session.show_thinking)
+                        render_messages_from(
+                            &session.messages,
+                            start,
+                            session.show_thinking,
+                            &ctx.settings
+                        )
                     );
                 }
             }
@@ -746,7 +841,7 @@ async fn run_slash(
                     "{} · {} · {} context · reasoning {}",
                     model.slug,
                     model.provider.label(),
-                    output::tokens(model.context_window as u64),
+                    format_tokens_exact(u64::from(agent::context_window(&ctx.settings, &model))),
                     ctx.settings.reasoning.label()
                 );
                 println!("Use /model <slug> or /models.");
@@ -1115,32 +1210,58 @@ fn print_settings(ctx: &CliContext) {
 // MARK: Rendering
 
 /// Render every message with 1-based indices.
-pub fn render_messages(messages: &[ChatMessage], show_thinking: bool) -> String {
-    render_messages_from(messages, 0, show_thinking)
+pub fn render_messages(
+    messages: &[ChatMessage],
+    show_thinking: bool,
+    settings: &AppSettings,
+) -> String {
+    render_messages_from(messages, 0, show_thinking, settings)
 }
 
 /// Render a suffix of messages while keeping absolute 1-based indices.
-fn render_messages_from(messages: &[ChatMessage], start: usize, show_thinking: bool) -> String {
+fn render_messages_from(
+    messages: &[ChatMessage],
+    start: usize,
+    show_thinking: bool,
+    settings: &AppSettings,
+) -> String {
     let mut out = String::new();
     for (offset, message) in messages.iter().enumerate().skip(start) {
         let index = offset + 1;
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        let time = output::local_time(message.created_at);
         let header = match message.role {
-            Role::User => "You".to_owned(),
-            Role::Assistant => format!(
-                "Relay · {}",
-                message.model.as_deref().unwrap_or("assistant")
+            Role::User => format!(
+                "{} {} {}",
+                output::cyan("You"),
+                output::dim(&format!("[{index}]")),
+                output::dim(&time)
             ),
-            Role::System => "System".to_owned(),
-            Role::Tool => "Tool".to_owned(),
+            Role::Assistant => {
+                let model = message
+                    .model
+                    .as_deref()
+                    .map(agent::resolve_model)
+                    .unwrap_or_else(|| agent::resolve_model(&settings.default_model));
+                format!(
+                    "{} {} {}",
+                    output::green("◆"),
+                    output::bold(&format!("Relay · {}", model.name)),
+                    output::dim(&format!("[{index}] · {time}"))
+                )
+            }
+            Role::System => format!("{} {}", output::bold("System"), output::dim(&time)),
+            Role::Tool => format!("{} {}", output::bold("Tool"), output::dim(&time)),
         };
-        out.push_str(&format!(
-            "[{index}] {header} · {}\n",
-            output::local_time(message.created_at)
-        ));
+        out.push_str(&header);
+        out.push('\n');
+
         if show_thinking {
             let thinking = message.thinking();
             if !thinking.trim().is_empty() {
-                out.push_str(&format!("{}\n", output::dim("reasoning:")));
+                out.push_str(&format!("{}\n", output::dim("  reasoning")));
                 for line in thinking.trim().lines() {
                     out.push_str("  ");
                     out.push_str(&output::dim(line));
@@ -1148,40 +1269,101 @@ fn render_messages_from(messages: &[ChatMessage], start: usize, show_thinking: b
                 }
             }
         }
+
         let text = message.text();
         if !text.trim().is_empty() {
             if message.role == Role::Assistant {
                 out.push_str(&output::render_markdown(text.trim()));
             } else {
-                out.push_str(text.trim());
-                out.push('\n');
+                for line in text.trim().lines() {
+                    out.push_str("  ");
+                    out.push_str(line);
+                    out.push('\n');
+                }
             }
         }
+
         for block in &message.blocks {
             match block {
                 ContentBlock::ToolUse {
                     name, arguments, ..
                 } => {
                     out.push_str(&format!(
-                        "  ↳ {name}({})\n",
-                        output::truncate(
+                        "  {} {} {}\n",
+                        output::cyan("↳"),
+                        output::bold(name),
+                        output::dim(&output::truncate(
                             &serde_json::to_string(arguments).unwrap_or_default(),
                             400
-                        )
+                        ))
                     ));
                 }
-                ContentBlock::ToolResult { output, .. } => {
-                    out.push_str(&format!("  ← {}\n", output::truncate(output, 400)));
+                ContentBlock::ToolResult { output: result, .. } => {
+                    out.push_str(&format!(
+                        "  {} {}\n",
+                        output::dim("←"),
+                        output::dim(&output::truncate(result, 400))
+                    ));
                 }
                 _ => {}
             }
         }
+
         if let Some(error) = &message.error {
-            out.push_str(&format!("  ! {error}\n"));
+            out.push_str(&format!("  {}\n", output::red(&format!("! {error}"))));
         }
-        out.push('\n');
+
+        if message.role == Role::Assistant {
+            let model = message
+                .model
+                .as_deref()
+                .map(agent::resolve_model)
+                .unwrap_or_else(|| agent::resolve_model(&settings.default_model));
+            let window = agent::context_window(settings, &model);
+            if let Some(usage) = message.usage {
+                let cost = model
+                    .estimate_cost(&usage)
+                    .map(|cost| format!(" · ${cost:.4}"))
+                    .unwrap_or_default();
+                out.push_str(&format!(
+                    "  {}\n",
+                    output::dim(&format!(
+                        "~{} / {} context · {} in / {} out{cost}",
+                        output::tokens(usage.total_tokens()),
+                        format_tokens_exact(u64::from(window)),
+                        output::tokens(u64::from(usage.input_tokens)),
+                        output::tokens(u64::from(usage.output_tokens))
+                    ))
+                ));
+            } else {
+                out.push_str(&format!(
+                    "  {}\n",
+                    output::dim(&format!(
+                        "~{} tokens (estimated) · {} context",
+                        output::tokens(estimate_message_tokens(message)),
+                        format_tokens_exact(u64::from(window))
+                    ))
+                ));
+            }
+        }
     }
     out
+}
+
+fn estimate_message_tokens(message: &ChatMessage) -> u64 {
+    let mut tokens = u64::from(estimate_tokens(&message.text())) + 4;
+    for block in &message.blocks {
+        match block {
+            ContentBlock::ToolUse { arguments, .. } => {
+                tokens += u64::from(estimate_tokens(&arguments.to_string()));
+            }
+            ContentBlock::ToolResult { output, .. } => {
+                tokens += u64::from(estimate_tokens(output));
+            }
+            _ => {}
+        }
+    }
+    tokens
 }
 
 // MARK: Local model readiness

@@ -16,7 +16,10 @@ use gpui_kit::{
     AnyElement, AppContext as _, ClipboardItem, Context, InteractiveElement as _, IntoElement,
     KeyDownEvent, ParentElement as _, SharedString, Styled as _, Window, div, px,
 };
-use relay_core::{AgentMode, ChatMessage, ContentBlock, Role, ToolApproval, format_tokens};
+use relay_core::{
+    AgentMode, ChatMessage, ContentBlock, Role, ToolApproval, estimate_tokens, format_tokens,
+    format_tokens_exact,
+};
 
 use crate::app::RelayApp;
 use crate::models;
@@ -271,6 +274,99 @@ impl RelayApp {
                 )
             })
             .child(self.render_composer(window, cx, &composer, can_send, streaming, notice))
+            .child(self.render_usage_footer(cx))
+    }
+
+    /// Persistent bottom strip with the current context meter and session totals.
+    ///
+    /// The context figure prefers provider-reported usage and falls back to a
+    /// character-based estimate while a response is still in flight.
+    fn render_usage_footer(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme().clone();
+        let model = self.current_model();
+        let window = relay_engine::agent::context_window(&self.settings, &model);
+
+        let mut total_in = 0u64;
+        let mut total_out = 0u64;
+        let mut latest_context = 0u64;
+        let mut estimated = 0u64;
+        for message in &self.messages {
+            estimated += estimate_message_tokens(message);
+            if let Some(usage) = message.usage {
+                total_in += u64::from(usage.input_tokens);
+                total_out += u64::from(usage.output_tokens);
+                latest_context = u64::from(usage.input_tokens) + u64::from(usage.output_tokens);
+            }
+        }
+        let session_tokens = (total_in + total_out).max(estimated);
+        let used = latest_context.max(estimated);
+        let percent = if window > 0 {
+            used as f64 / f64::from(window) * 100.0
+        } else {
+            0.0
+        };
+        let ratio = (percent / 100.0).clamp(0.0, 1.0);
+        let percent_label = if used > 0 && percent < 0.05 {
+            "<0.1%".to_owned()
+        } else {
+            format!("{percent:.1}%")
+        };
+        let bar_color = if percent >= 90.0 {
+            theme.danger
+        } else {
+            theme.primary
+        };
+        let has_usage = total_in + total_out > 0;
+
+        h_flex()
+            .flex_none()
+            .h(px(32.))
+            .px_6()
+            .gap_2()
+            .items_center()
+            .border_t_1()
+            .border_color(theme.border)
+            .text_xs()
+            .text_color(theme.muted_foreground)
+            .child(div().size(px(6.)).rounded_full().bg(if percent >= 90.0 {
+                theme.danger
+            } else {
+                theme.success
+            }))
+            .child(div().child(SharedString::from(format!(
+                "Context ~{} / {} tokens ({percent_label})",
+                format_tokens(used),
+                format_tokens_exact(u64::from(window))
+            ))))
+            .child(
+                div()
+                    .w(px(72.))
+                    .h(px(4.))
+                    .rounded_full()
+                    .bg(theme.muted)
+                    .overflow_hidden()
+                    .child(
+                        div()
+                            .h_full()
+                            .w(gpui_kit::relative(ratio as f32))
+                            .bg(bar_color)
+                            .rounded_full(),
+                    ),
+            )
+            .child(div().flex_1())
+            .child(div().child(SharedString::from(if has_usage {
+                format!(
+                    "Session ~{} tokens · {} in / {} out",
+                    format_tokens(session_tokens),
+                    format_tokens(total_in),
+                    format_tokens(total_out)
+                )
+            } else {
+                format!(
+                    "Session ~{} tokens (estimated)",
+                    format_tokens(session_tokens)
+                )
+            })))
     }
 
     fn render_welcome(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1339,6 +1435,22 @@ fn suggestion(
                 ),
         )
         .into_any_element()
+}
+
+fn estimate_message_tokens(message: &ChatMessage) -> u64 {
+    let mut tokens = u64::from(estimate_tokens(&message.text())) + 4;
+    for block in &message.blocks {
+        match block {
+            ContentBlock::ToolUse { arguments, .. } => {
+                tokens += u64::from(estimate_tokens(&arguments.to_string()));
+            }
+            ContentBlock::ToolResult { output, .. } => {
+                tokens += u64::from(estimate_tokens(output));
+            }
+            _ => {}
+        }
+    }
+    tokens
 }
 
 fn tool_arg_summary(name: &str, args: &serde_json::Value) -> String {

@@ -217,6 +217,22 @@ pub fn format_tokens(tokens: u64) -> String {
     }
 }
 
+/// Format a token count exactly, with thousands separators (`1,048,576`).
+///
+/// Context windows are easier to compare when the real number is visible, so
+/// the GUI and CLI use this in their context meters.
+pub fn format_tokens_exact(tokens: u64) -> String {
+    let digits = tokens.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (index, ch) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -256,6 +272,14 @@ mod tests {
         let mut usage = Usage::new(10, 5, 2, 0);
         usage.merge_max(Usage::new(8, 9, 0, 4));
         assert_eq!(usage, Usage::new(10, 9, 2, 4));
+    }
+
+    #[test]
+    fn exact_token_formatting_adds_separators() {
+        assert_eq!(format_tokens_exact(0), "0");
+        assert_eq!(format_tokens_exact(999), "999");
+        assert_eq!(format_tokens_exact(1_000), "1,000");
+        assert_eq!(format_tokens_exact(1_048_576), "1,048,576");
     }
 
     #[test]
