@@ -19,7 +19,7 @@ use crate::{DatabaseKey, Result, StoreError};
 
 const SQLITE_HEADER: &[u8] = b"SQLite format 3\0";
 
-const SCHEMA_VERSION: i32 = 2;
+const SCHEMA_VERSION: i32 = 3;
 
 /// The result of appending a message.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -223,6 +223,54 @@ impl Store {
         let conn = self.conn()?;
         conn.execute("DELETE FROM conversations WHERE id = ?1", params![id])?;
         Ok(())
+    }
+
+    /// Pin or unpin a conversation.
+    pub fn set_pinned(&self, id: &str, pinned: bool) -> Result<()> {
+        let conn = self.conn()?;
+        conn.execute(
+            "UPDATE conversations SET pinned = ?1 WHERE id = ?2",
+            params![pinned as i64, id],
+        )?;
+        Ok(())
+    }
+
+    /// Archive or unarchive a conversation.
+    pub fn set_archived(&self, id: &str, archived: bool) -> Result<()> {
+        let conn = self.conn()?;
+        conn.execute(
+            "UPDATE conversations SET archived = ?1 WHERE id = ?2",
+            params![archived as i64, id],
+        )?;
+        Ok(())
+    }
+
+    /// List archived conversations.
+    pub fn list_archived_conversations(&self) -> Result<Vec<ConversationSummary>> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT c.id, c.title, c.model_slug, c.created_at, c.updated_at,
+                    (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id),
+                    (SELECT m.search_text FROM messages m WHERE m.conversation_id = c.id ORDER BY m.position DESC LIMIT 1),
+                    c.pinned, c.archived
+             FROM conversations c WHERE c.archived = 1 ORDER BY c.updated_at DESC LIMIT 300",
+        )?;
+        let rows = stmt.query_map([], RawSummary::from_row)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+            .into_iter()
+            .map(RawSummary::into_summary)
+            .collect()
+    }
+
+    /// Export all conversations as a single Markdown document.
+    pub fn export_all_markdown(&self) -> Result<String> {
+        let mut out = String::new();
+        for c in self.list_conversations()? {
+            out.push_str(&format!("# {}\n\n", c.title));
+            out.push_str(&self.export_markdown(&c.id)?);
+            out.push_str("\n\n---\n\n");
+        }
+        Ok(out)
     }
 
     /// Delete every conversation. Presets and settings are retained.
@@ -818,8 +866,9 @@ const SUMMARY_QUERY: &str = "SELECT c.id, c.title, c.model_slug, c.created_at, c
         (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id),
         (SELECT m.search_text FROM messages m
          WHERE m.conversation_id = c.id
-         ORDER BY m.position DESC LIMIT 1)
-    FROM conversations c ORDER BY c.updated_at DESC LIMIT ?1";
+         ORDER BY m.position DESC LIMIT 1),
+        c.pinned, c.archived
+    FROM conversations c WHERE c.archived = 0 ORDER BY c.pinned DESC, c.updated_at DESC LIMIT ?1";
 
 struct RawSummary {
     id: String,
@@ -829,6 +878,8 @@ struct RawSummary {
     updated_at: String,
     message_count: u32,
     preview: Option<String>,
+    pinned: i64,
+    archived: i64,
 }
 
 impl RawSummary {
@@ -841,6 +892,8 @@ impl RawSummary {
             updated_at: row.get(4)?,
             message_count: row.get(5)?,
             preview: row.get(6)?,
+            pinned: row.get(7)?,
+            archived: row.get(8)?,
         })
     }
 
@@ -860,6 +913,8 @@ impl RawSummary {
                     compact
                 }
             }),
+            pinned: self.pinned != 0,
+            archived: self.archived != 0,
         })
     }
 }
@@ -876,6 +931,10 @@ fn migrate(conn: &mut Connection) -> Result<()> {
     if version < 2 {
         tx.execute_batch(SCHEMA_V2)?;
     }
+    if version < 3 {
+        let _ = tx.execute("ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0", []);
+        let _ = tx.execute("ALTER TABLE conversations ADD COLUMN archived INTEGER NOT NULL DEFAULT 0", []);
+    }
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     tx.commit()?;
     Ok(())
@@ -887,7 +946,9 @@ CREATE TABLE IF NOT EXISTS conversations (
     title TEXT NOT NULL,
     model_slug TEXT NOT NULL,
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    pinned INTEGER NOT NULL DEFAULT 0,
+    archived INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS conversations_updated
     ON conversations(updated_at DESC);

@@ -15,6 +15,11 @@ use gpui_kit::component::{
     text::TextViewState,
     v_flex,
 };
+use gpui_kit::assets::IconName;
+use gpui_kit::component::Icon;
+use gpui_kit::component::Sizable as _;
+use gpui_kit::component::button::ButtonVariants as _;
+use gpui_kit::prelude::{FluentBuilder as _, StatefulInteractiveElement as _};
 use gpui_kit::{
     AppContext as _, Context, Entity, InteractiveElement as _, IntoElement, KeyDownEvent,
     ParentElement as _, Render, SharedString, Styled as _, Subscription, Task, Window, div,
@@ -101,6 +106,11 @@ pub struct RelayApp {
     /// Model used when no conversation has been saved yet.
     pub(crate) draft_model: String,
     pub(crate) sidebar: SidebarState,
+    pub(crate) sidebar_collapsed: bool,
+    pub(crate) bulk_select_mode: bool,
+    pub(crate) selected_conversations: HashSet<String>,
+    pub(crate) renaming_conversation: Option<(String, Entity<InputState>)>,
+    pub(crate) offline: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub(crate) chat: ChatState,
     pub(crate) settings_view: Option<Entity<SettingsView>>,
     stream: Option<ActiveStream>,
@@ -183,6 +193,11 @@ impl RelayApp {
                 search,
                 scroll: gpui_kit::ScrollHandle::new(),
             },
+            sidebar_collapsed: false,
+            bulk_select_mode: false,
+            selected_conversations: HashSet::new(),
+            renaming_conversation: None,
+            offline: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             chat: ChatState {
                 composer,
                 model_select,
@@ -221,6 +236,7 @@ impl RelayApp {
         // Bundled model is prepared lazily (on demand) to keep idle RAM low.
         app.spawn_bundled_watcher(cx);
         app.spawn_memory_summarizer();
+        app.spawn_offline_checker();
         if let Some(summary) = latest {
             app.load_conversation_data(&summary.id, window, cx);
             app.rebuild_model_select(window, cx);
@@ -315,6 +331,23 @@ impl RelayApp {
                 tokio::time::sleep(Duration::from_secs(3600)).await;
             }
         });
+    }
+
+    fn spawn_offline_checker(&self) {
+        let flag = self.offline.clone();
+        let runtime = self.runtime.clone();
+        runtime.spawn(async move {
+            loop {
+                let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(5)).build().unwrap_or_default();
+                let ok = client.head("https://www.google.com").send().await.map(|r| r.status().is_success()).unwrap_or(false);
+                flag.store(!ok, std::sync::atomic::Ordering::Relaxed);
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            }
+        });
+    }
+
+    pub(crate) fn is_offline(&self) -> bool {
+        self.offline.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     pub(crate) fn bundled_status(&self) -> crate::bundled::BundledStatus {
@@ -1430,7 +1463,12 @@ impl Render for RelayApp {
             self.apply_bundled_ready(window, cx);
         }
         let theme = cx.theme().clone();
-        let sidebar = self.render_sidebar(window, cx).into_any_element();
+        let sidebar_collapsed = self.sidebar_collapsed;
+        let sidebar = if sidebar_collapsed {
+            None
+        } else {
+            Some(self.render_sidebar(window, cx).into_any_element())
+        };
         let main = self.render_main(window, cx).into_any_element();
         v_flex()
             .size_full()
@@ -1466,14 +1504,37 @@ impl Render for RelayApp {
                                 .text_color(theme.primary_foreground)
                                 .child("R"),
                         )
-                        .child(div().text_sm().font_semibold().child("Relay")),
+                        .child(div().text_sm().font_semibold().child("Relay"))
+                        .when(self.is_offline(), |this| {
+                            this.child(
+                                div()
+                                    .text_xs()
+                                    .text_color(gpui_kit::rgb(0xef4444))
+                                    .child("Offline"),
+                            )
+                        })
+                        .child(
+                            gpui_kit::component::button::Button::new("toggle-sidebar")
+                                .ghost()
+                                .small()
+                                .icon(Icon::new(if sidebar_collapsed {
+                                    IconName::PanelLeft
+                                } else {
+                                    IconName::PanelLeftClose
+                                }))
+                                .tooltip("Toggle sidebar (Ctrl+B)")
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.sidebar_collapsed = !this.sidebar_collapsed;
+                                    cx.notify();
+                                })),
+                        ),
                 ),
             )
             .child(
                 h_flex()
                     .flex_1()
                     .min_h_0()
-                    .child(sidebar)
+                    .when_some(sidebar, |this, s| this.child(s))
                     .child(div().flex_1().min_w_0().h_full().child(main)),
             )
     }

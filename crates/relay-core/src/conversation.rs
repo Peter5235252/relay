@@ -20,6 +20,12 @@ pub struct ConversationSummary {
     pub message_count: u32,
     /// A short preview of the latest visible text, when available.
     pub preview: Option<String>,
+    /// Whether the conversation is pinned.
+    #[serde(default)]
+    pub pinned: bool,
+    /// Whether the conversation is archived.
+    #[serde(default)]
+    pub archived: bool,
 }
 
 impl ConversationSummary {
