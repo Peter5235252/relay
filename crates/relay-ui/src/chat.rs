@@ -158,6 +158,52 @@ impl RelayApp {
                     ),
             )
             .child(transcript)
+            .when(self.pending_bundled_download.is_some(), |this| {
+                let variant = self.pending_bundled_download.unwrap();
+                this.child(
+                    div()
+                        .max_w(px(900.))
+                        .w_full()
+                        .mx_auto()
+                        .px_6()
+                        .py_3()
+                        .rounded(theme.radius)
+                        .border_1()
+                        .border_color(theme.primary)
+                        .bg(theme.input)
+                        .child(
+                            v_flex()
+                                .gap_2()
+                                .child(div().text_sm().font_medium().child(format!(
+                                    "Download {}? (~4-5 GB, one-time)",
+                                    variant.display_name()
+                                )))
+                                .child(
+                                    h_flex()
+                                        .gap_2()
+                                        .child(
+                                            Button::new("confirm-bundled-download")
+                                                .primary()
+                                                .label("Download")
+                                                .on_click(cx.listener(move |this, _, _, cx| {
+                                                    this.ensure_bundled_variant(variant, cx);
+                                                    this.pending_bundled_download = None;
+                                                    cx.notify();
+                                                })),
+                                        )
+                                        .child(
+                                            Button::new("cancel-bundled-download")
+                                                .ghost()
+                                                .label("Cancel")
+                                                .on_click(cx.listener(|this, _, _, cx| {
+                                                    this.pending_bundled_download = None;
+                                                    cx.notify();
+                                                })),
+                                        ),
+                                ),
+                        )
+                )
+            })
             .child(self.render_composer(window, cx, &composer, can_send, streaming, notice))
     }
 

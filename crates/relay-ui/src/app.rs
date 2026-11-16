@@ -128,6 +128,7 @@ pub struct RelayApp {
     bundled_applied: bool,
     bundled_needs_refresh: bool,
     pub(crate) pending_approval: Option<crate::streaming::ApprovalRequest>,
+    pub(crate) pending_bundled_download: Option<crate::bundled::BundledVariant>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -229,6 +230,7 @@ impl RelayApp {
             bundled_applied: false,
             bundled_needs_refresh: false,
             pending_approval: None,
+            pending_bundled_download: None,
             _subscriptions: Vec::new(),
         };
 
@@ -373,7 +375,7 @@ impl RelayApp {
         });
     }
 
-    fn ensure_bundled_variant(
+    pub(crate) fn ensure_bundled_variant(
         &mut self,
         variant: crate::bundled::BundledVariant,
         cx: &mut Context<Self>,
@@ -832,7 +834,9 @@ impl RelayApp {
         if let Some(variant) = Self::bundled_variant_for_slug(&slug) {
             self.settings.bundled_model_variant = variant.id().to_owned();
             self.persist_settings();
-            self.ensure_bundled_variant(variant, cx);
+            // Strictly opt-in: ask before downloading.
+            self.pending_bundled_download = Some(variant);
+            cx.notify();
         }
         self.rebuild_reasoning_select(window, cx);
         cx.notify();
@@ -973,7 +977,8 @@ impl RelayApp {
             let ready_for_variant =
                 status.ready && status.active_variant.as_deref() == Some(variant.id());
             if !ready_for_variant {
-                self.ensure_bundled_variant(variant, cx);
+                self.pending_bundled_download = Some(variant);
+                cx.notify();
                 let msg = if let Some(err) = status.error {
                     format!("Bundled model unavailable: {err}")
                 } else {
