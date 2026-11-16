@@ -154,11 +154,11 @@ pub fn groups(settings: &AppSettings) -> Vec<SelectGroup<ModelChoice>> {
     }
 
     if !ready.is_empty() {
-        result.push(SelectGroup::new("Ready to use local models").items(ready));
+        result.push(SelectGroup::new("Ready to use (local)").items(ready));
     }
-    if !installable.is_empty() {
-        result.push(SelectGroup::new("Installable local models").items(installable));
-    }
+        if !installable.is_empty() {
+            result.push(SelectGroup::new("Install (needs download)").items(installable));
+        }
 
     result
 }

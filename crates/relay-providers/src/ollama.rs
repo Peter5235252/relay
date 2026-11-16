@@ -101,7 +101,9 @@ pub(crate) async fn stream(
             Err(_) => return Err(ProviderError::Timeout { provider: Provider::Ollama }),
             Ok(Err(error)) => return Err(ProviderError::Transport {
                 provider: Provider::Ollama,
-                message: error.to_string(),
+                message: format!(
+                    "Could not reach Ollama at {url}. Is `ollama serve` running? ({error})"
+                ),
             }),
             Ok(Ok(response)) => response,
         }
@@ -110,10 +112,14 @@ pub(crate) async fn stream(
     if !response.status().is_success() {
         let status = response.status().as_u16();
         let body = response.text().await.unwrap_or_default();
+        let mut msg = remote_message(&body);
+        if status == 404 || body.to_lowercase().contains("not found") {
+            msg = format!("{msg} — install it with `ollama pull <model>`");
+        }
         return Err(ProviderError::Status {
             provider: Provider::Ollama,
             status,
-            message: remote_message(&body),
+            message: msg,
         });
     }
 
@@ -252,10 +258,14 @@ pub(crate) async fn list_models(
     if !response.status().is_success() {
         let status = response.status().as_u16();
         let body = response.text().await.unwrap_or_default();
+        let mut msg = remote_message(&body);
+        if status == 404 || body.to_lowercase().contains("not found") {
+            msg = format!("{msg} — install it with `ollama pull <model>`");
+        }
         return Err(ProviderError::Status {
             provider: Provider::Ollama,
             status,
-            message: remote_message(&body),
+            message: msg,
         });
     }
     let value: Value = response
