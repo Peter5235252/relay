@@ -185,12 +185,15 @@ pub fn should_auto_approve(
     args: &serde_json::Value,
 ) -> bool {
     match mode {
-        AgentMode::Plan => matches!(name, "read_file" | "list_dir" | "delegate"),
+        AgentMode::Plan => matches!(
+            name,
+            "read_file" | "list_dir" | "delegate" | "web_search" | "fetch_url"
+        ),
         AgentMode::Build => match policy {
             ToolApproval::All => true,
             ToolApproval::None => false,
             ToolApproval::NonDestructive => match name {
-                "read_file" | "list_dir" => true,
+                "read_file" | "list_dir" | "web_search" | "fetch_url" => true,
                 "run_command" => {
                     let cmd = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
                     is_command_nondestructive(cmd)
@@ -323,7 +326,9 @@ fn web_search_spec() -> ToolSpec {
 fn fetch_url_spec() -> ToolSpec {
     ToolSpec {
         name: "fetch_url".into(),
-        description: "Fetch a web page and return its text content (HTML stripped). Use to read a result.".into(),
+        description:
+            "Fetch a web page and return its text content (HTML stripped). Use to read a result."
+                .into(),
         parameters: serde_json::json!({
             "type": "object",
             "properties": {

@@ -17,6 +17,7 @@ path = "src/main.rs"
 relay-core.workspace = true
 relay-providers.workspace = true
 relay-store.workspace = true
+relay-engine.workspace = true
 chrono.workspace = true
 getrandom = "0.3"
 gpui-kit.workspace = true

@@ -4,7 +4,9 @@ members = [
     "crates/relay-core",
     "crates/relay-store",
     "crates/relay-providers",
+    "crates/relay-engine",
     "crates/relay-ui",
+    "crates/relay-cli",
 ]
 default-members = ["crates/relay-ui"]
 
@@ -20,6 +22,7 @@ repository = "https://github.com/Peter5235252/relay"
 relay-core = { path = "crates/relay-core" }
 relay-store = { path = "crates/relay-store" }
 relay-providers = { path = "crates/relay-providers" }
+relay-engine = { path = "crates/relay-engine" }
 
 # The GPUI Kit release pins its matching GPUI snapshot. Keep this exact: mixing
 # snapshots breaks the pre-1.0 GPUI API.
@@ -46,7 +49,15 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 smol = "2"
 thiserror = "2"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "1", features = [
+    "fs",
+    "io-util",
+    "macros",
+    "rt-multi-thread",
+    "signal",
+    "sync",
+    "time",
+] }
 tokio-util = { version = "0.7", features = ["rt"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

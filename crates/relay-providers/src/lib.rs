@@ -104,10 +104,18 @@ impl ProviderClient {
     ) -> Result<Option<String>, ProviderError> {
         match request.model.provider {
             Provider::Gemini => gemini::stream(&self.http, request, events, cancel).await,
-            Provider::Anthropic => anthropic::stream(&self.http, request, events, cancel).await.map(|_| None),
-            Provider::OpenAi => openai::stream(&self.http, request, events, cancel).await.map(|_| None),
-            Provider::Ollama => ollama::stream(&self.http, request, events, cancel).await.map(|_| None),
-            Provider::OpenAiCompatible => local::stream(&self.http, request, events, cancel).await.map(|_| None),
+            Provider::Anthropic => anthropic::stream(&self.http, request, events, cancel)
+                .await
+                .map(|_| None),
+            Provider::OpenAi => openai::stream(&self.http, request, events, cancel)
+                .await
+                .map(|_| None),
+            Provider::Ollama => ollama::stream(&self.http, request, events, cancel)
+                .await
+                .map(|_| None),
+            Provider::OpenAiCompatible => local::stream(&self.http, request, events, cancel)
+                .await
+                .map(|_| None),
         }
     }
 

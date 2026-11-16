@@ -173,7 +173,8 @@ impl Store {
                     (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id),
                     (SELECT m.search_text FROM messages m
                      WHERE m.conversation_id = c.id
-                     ORDER BY m.position DESC LIMIT 1)
+                     ORDER BY m.position DESC LIMIT 1),
+                    c.pinned, c.archived
              FROM conversations c WHERE c.id = ?1",
         )?;
         let raw = stmt
@@ -502,7 +503,8 @@ impl Store {
                     (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id),
                     (SELECT m.search_text FROM messages m
                      WHERE m.conversation_id = c.id
-                     ORDER BY m.position DESC LIMIT 1)
+                     ORDER BY m.position DESC LIMIT 1),
+                    c.pinned, c.archived
              FROM conversations c
              WHERE c.id IN (
                  SELECT conversation_id FROM messages_fts WHERE messages_fts MATCH ?1
@@ -932,8 +934,14 @@ fn migrate(conn: &mut Connection) -> Result<()> {
         tx.execute_batch(SCHEMA_V2)?;
     }
     if version < 3 {
-        let _ = tx.execute("ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0", []);
-        let _ = tx.execute("ALTER TABLE conversations ADD COLUMN archived INTEGER NOT NULL DEFAULT 0", []);
+        let _ = tx.execute(
+            "ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
+        let _ = tx.execute(
+            "ALTER TABLE conversations ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
     }
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     tx.commit()?;

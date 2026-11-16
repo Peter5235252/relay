@@ -50,29 +50,7 @@ pub type ModelSelect = Entity<SelectState<SearchableVec<SelectGroup<ModelChoice>
 /// Resolve a stored slug to a concrete model. Unknown cloud slugs fall back to
 /// the default model rather than breaking the chat.
 pub fn resolve(slug: &str) -> ModelSelection {
-    if let Some(spec) = find_model(slug) {
-        return ModelSelection::from_spec(spec);
-    }
-    if let Some(local) = ModelSelection::local_from_slug(slug) {
-        return local;
-    }
-    find_model(relay_core::DEFAULT_MODEL_SLUG)
-        .map(ModelSelection::from_spec)
-        .unwrap_or_else(|| ModelSelection::ollama("llama3.2"))
-}
-
-
-fn installed_ollama_models() -> Vec<String> {
-    let out = std::process::Command::new("ollama")
-        .arg("list")
-        .output();
-    let Ok(out) = out else { return Vec::new(); };
-    let text = String::from_utf8_lossy(&out.stdout);
-    text.lines()
-        .skip(1)
-        .filter_map(|l| l.split_whitespace().next())
-        .map(|s| s.to_owned())
-        .collect()
+    relay_engine::agent::resolve_model(slug)
 }
 
 /// Build grouped picker items for the configured settings.
@@ -130,23 +108,22 @@ pub fn groups(settings: &AppSettings) -> Vec<SelectGroup<ModelChoice>> {
     }
 
     // Curated open-weight models. Installed ones merge into ready.
-    let installed = installed_ollama_models();
-    let curated: Vec<(&str, &str, &str)> = vec![
-        ("deepseek-v4.1:flash", "DeepSeek V4.1 Flash", "MIT"),
-        ("reflection-beam", "Reflection Beam", "Apache 2.0"),
-        ("glm-5.3", "GLM-5.3", "GLM-5.3 (MIT-like, $10B MaaS review clause)"),
-        ("glm-5.3:flash", "GLM-5.3 Flash", "MIT"),
-        ("mistral-small-4", "Mistral Small 4", "Apache 2.0"),
-    ];
+    let installed = relay_engine::local::installed_ollama_models();
     let mut installable = Vec::new();
-    for (tag, name, license) in curated {
+    for model in relay_engine::local::CURATED {
         let choice = ModelChoice {
-            slug: format!("ollama/{}", tag),
-            name: name.to_owned(),
-            tagline: format!("Local, private. License: {}.", license),
+            slug: format!("ollama/{}", model.tag),
+            name: model.name.to_owned(),
+            tagline: format!("Local, private. License: {}.", model.license),
             provider: "Local (Ollama)".to_owned(),
         };
-        if installed.iter().any(|m| m == tag) {
+        if installed.iter().any(|name| {
+            name == model.tag
+                || name
+                    .strip_prefix(model.tag)
+                    .is_some_and(|rest| rest.starts_with(':'))
+                || (!model.tag.contains(':') && name == &format!("{}:latest", model.tag))
+        }) {
             ready.push(choice);
         } else {
             installable.push(choice);
@@ -156,9 +133,9 @@ pub fn groups(settings: &AppSettings) -> Vec<SelectGroup<ModelChoice>> {
     if !ready.is_empty() {
         result.push(SelectGroup::new("Ready to use (local)").items(ready));
     }
-        if !installable.is_empty() {
-            result.push(SelectGroup::new("Install (needs download)").items(installable));
-        }
+    if !installable.is_empty() {
+        result.push(SelectGroup::new("Install (needs download)").items(installable));
+    }
 
     result
 }

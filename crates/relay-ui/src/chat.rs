@@ -1386,7 +1386,11 @@ fn format_cost(cost: f64) -> String {
     }
 }
 
-fn guarantee_item(title: &'static str, detail: &'static str, theme: &gpui_kit::component::Theme) -> gpui_kit::Div {
+fn guarantee_item(
+    title: &'static str,
+    detail: &'static str,
+    theme: &gpui_kit::component::Theme,
+) -> gpui_kit::Div {
     h_flex()
         .items_start()
         .gap_2()

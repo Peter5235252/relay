@@ -7,6 +7,10 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
+use gpui_kit::assets::IconName;
+use gpui_kit::component::Icon;
+use gpui_kit::component::Sizable as _;
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::{
     ActiveTheme as _, StyledExt as _, TitleBar, WindowExt as _, h_flex,
     input::{InputEvent, InputState, TextareaState},
@@ -15,10 +19,6 @@ use gpui_kit::component::{
     text::TextViewState,
     v_flex,
 };
-use gpui_kit::assets::IconName;
-use gpui_kit::component::Icon;
-use gpui_kit::component::Sizable as _;
-use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::prelude::{FluentBuilder as _, StatefulInteractiveElement as _};
 use gpui_kit::{
     AppContext as _, Context, Entity, InteractiveElement as _, IntoElement, KeyDownEvent,
@@ -26,10 +26,9 @@ use gpui_kit::{
 };
 use relay_core::{
     AppSettings, ChatMessage, ContentBlock, ConversationSummary, ModelSelection, PersonalityPreset,
-    Provider, ReasoningEffort, ReasoningKind, Role, compose_system_prompt, find_builtin_preset,
-    fit_history, request_history,
+    Provider, ReasoningEffort, ReasoningKind, Role,
 };
-use relay_providers::{ChatRequest, StreamEvent};
+use relay_providers::StreamEvent;
 use relay_store::Store;
 use tokio::runtime::Handle;
 use tokio_util::sync::CancellationToken;
@@ -257,82 +256,27 @@ impl RelayApp {
         runtime.spawn(async move {
             use std::time::Duration;
             loop {
-                let mut endpoint = None;
-                for _ in 0..360 {
-                    let st = bundled.lock().map(|s| s.status()).unwrap_or_default();
-                    if st.ready {
-                        endpoint = st.endpoint;
-                        break;
-                    }
-                    tokio::time::sleep(Duration::from_secs(10)).await;
-                }
-                let Some(endpoint) = endpoint else {
-                    tokio::time::sleep(Duration::from_secs(60)).await;
-                    continue;
+                let settings = store.load_settings().unwrap_or_default();
+                let status = bundled.lock().map(|s| s.status()).unwrap_or_default();
+                let bundled_endpoint = if status.ready {
+                    status.endpoint.as_deref()
+                } else {
+                    None
                 };
-
-                let mut settings = store.load_settings().unwrap_or_default();
-                let now = chrono::Utc::now().timestamp();
-                if now - settings.last_memory_summary_at < 10 * 3600 {
+                if let Some((endpoint, model)) =
+                    relay_engine::memory::configured_endpoint(&settings, bundled_endpoint)
+                {
+                    let _ = relay_engine::memory::maybe_summarize(
+                        &store,
+                        Some(&endpoint),
+                        &model,
+                        false,
+                    )
+                    .await;
                     tokio::time::sleep(Duration::from_secs(3600)).await;
-                    continue;
+                } else {
+                    tokio::time::sleep(Duration::from_secs(60)).await;
                 }
-
-                let convs = store.list_conversations().unwrap_or_default();
-                let mut text = String::new();
-                for c in convs.iter().take(8) {
-                    if let Ok(msgs) = store.messages(&c.id) {
-                        text.push_str(&format!("Conversation: {}\n", c.title));
-                        for m in msgs.iter().take(30) {
-                            let t = m.text();
-                            if t.trim().is_empty() {
-                                continue;
-                            }
-                            text.push_str(&format!("{}: {}\n", m.role.as_str(), t.chars().take(800).collect::<String>()));
-                        }
-                    }
-                }
-                if text.trim().is_empty() {
-                    settings.last_memory_summary_at = now;
-                    let _ = store.save_settings(&settings);
-                    tokio::time::sleep(Duration::from_secs(3600)).await;
-                    continue;
-                }
-
-                let prompt = format!(
-                    "Summarize the following conversation history into a concise cross-session memory \
-                     of user preferences, facts, and ongoing tasks. Output only the summary, no preamble.\n\n{text}"
-                );
-                let client = reqwest::Client::new();
-                let body = serde_json::json!({
-                    "model": "local-model",
-                    "messages": [{"role":"user","content":prompt}],
-                    "max_tokens": 512,
-                });
-                let url = format!("{}/chat/completions", endpoint.trim_end_matches('/'));
-                if let Ok(resp) = client.post(&url).json(&body).send().await {
-                    if let Ok(json) = resp.json::<serde_json::Value>().await {
-                        if let Some(summary) = json
-                            .get("choices")
-                            .and_then(|c| c.get(0))
-                            .and_then(|c| c.get("message"))
-                            .and_then(|m| m.get("content"))
-                            .and_then(|x| x.as_str())
-                        {
-                            if let Ok(mems) = store.list_memories() {
-                                for (id, content) in mems {
-                                    if content.starts_with("[Auto-summary]") {
-                                        let _ = store.delete_memory(&id);
-                                    }
-                                }
-                            }
-                            let _ = store.add_memory(&format!("[Auto-summary] {}", summary.trim()));
-                            settings.last_memory_summary_at = chrono::Utc::now().timestamp();
-                            let _ = store.save_settings(&settings);
-                        }
-                    }
-                }
-                tokio::time::sleep(Duration::from_secs(3600)).await;
             }
         });
     }
@@ -342,8 +286,16 @@ impl RelayApp {
         let runtime = self.runtime.clone();
         runtime.spawn(async move {
             loop {
-                let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(5)).build().unwrap_or_default();
-                let ok = client.head("https://www.google.com").send().await.map(|r| r.status().is_success()).unwrap_or(false);
+                let client = reqwest::Client::builder()
+                    .timeout(std::time::Duration::from_secs(5))
+                    .build()
+                    .unwrap_or_default();
+                let ok = client
+                    .head("https://www.google.com")
+                    .send()
+                    .await
+                    .map(|r| r.status().is_success())
+                    .unwrap_or(false);
                 flag.store(!ok, std::sync::atomic::Ordering::Relaxed);
                 tokio::time::sleep(std::time::Duration::from_secs(30)).await;
             }
@@ -840,7 +792,13 @@ impl RelayApp {
             self.pending_bundled_download = Some(variant);
             cx.notify();
         } else if let Some(tag) = slug.strip_prefix("ollama/") {
-            let curated = ["deepseek-v4.1:flash", "reflection-beam", "glm-5.3", "glm-5.3:flash", "mistral-small-4"];
+            let curated = [
+                "deepseek-v4.1:flash",
+                "reflection-beam",
+                "glm-5.3",
+                "glm-5.3:flash",
+                "mistral-small-4",
+            ];
             if curated.contains(&tag) {
                 self.pending_ollama_install = Some(tag.to_owned());
                 self.settings.ollama_model = tag.to_owned();
@@ -1111,76 +1069,19 @@ impl RelayApp {
         cx: &mut Context<Self>,
     ) {
         let model = self.current_model();
-        let reasoning = if model.reasoning == ReasoningKind::None {
-            ReasoningEffort::Off
-        } else {
-            self.settings.reasoning
-        };
-        let tools = if self.settings.interaction_mode == "chat" {
-            relay_core::chat_tool_specs()
-        } else {
-            let mut specs = relay_core::tool_specs(self.settings.agent_mode);
-            specs.extend(crate::mcp::global_tools());
-            specs
-        };
-        eprintln!("RELAY TRACE generate: mode={} tools={}", self.settings.interaction_mode, tools.len());
-        let mut request = ChatRequest::new(model.clone(), Vec::new())
-            .with_reasoning(reasoning)
-            .with_temperature(self.settings.temperature)
-            .with_max_output_tokens(self.settings.max_output_tokens)
-            .with_tools(tools);
-        let preset = self
-            .chat
-            .presets
-            .iter()
-            .find(|preset| preset.id == self.settings.active_preset_id)
-            .cloned()
-            .or_else(|| find_builtin_preset(&self.settings.active_preset_id));
-        let mut custom = self.settings.custom_instructions.clone();
-        if let Ok(memories) = self.store.list_memories() {
-            if !memories.is_empty() {
-                custom.push_str("\n\nCross-session memory:\n");
-                for (_, content) in &memories {
-                    custom.push_str("- ");
-                    custom.push_str(content);
-                    custom.push('\n');
-                }
-            }
-        }
-        let mut system = compose_system_prompt(preset.as_ref(), &custom)
-            .unwrap_or_else(|| relay_core::BASE_SYSTEM_PROMPT.to_owned());
-        if model.is_local() {
-            system.push_str("\n\nLocal model tool-use rules: Use the provided function/tool calls exactly as specified—do not invent tool call syntax in plain text. Before claiming a file was created/changed, ensure a write tool call succeeded; before claiming contents, ensure read/list tool results show them. For Desktop on localized systems (e.g. Hungarian 'Asztal'), locate it via $HOME (e.g. run_command: echo $HOME, then list_dir) rather than guessing paths. If unsure, inspect first, then act, then verify with a tool.");
-        }
-        if self.settings.interaction_mode == "chat" {
-            system.push_str("\n\nYou have access to web_search and fetch_url tools. Use web_search to find current information on the internet; use fetch_url to read a specific page. Never say you cannot access the internet or live data—use these tools instead.");
-        } else {
-            system.push_str("\n\nYou have access to tools including web_search, fetch_url, file, and terminal operations (when enabled). Use them when needed to obtain current information or perform actions. Never say you cannot access the internet or live data—use web_search instead.");
-        }
-        let system_opt = if system.trim().is_empty() {
-            None
-        } else {
-            Some(system.clone())
-        };
-        request = request.with_system_prompt(system_opt.clone());
-        let system_ref = system_opt.as_deref();
-        let history = fit_history(
-            request_history(&self.messages),
-            model.context_window,
-            request.output_limit(),
-            system_ref,
+        let memories = self.store.list_memories().unwrap_or_default();
+        let request = relay_engine::agent::prepare_request(
+            &self.settings,
+            &model,
+            &self.messages,
+            &self.chat.presets,
+            &memories,
         );
-        request.messages = history;
-        if model.provider.is_local() {
-            let endpoint = match model.provider {
-                Provider::Ollama => self.settings.ollama_base_url.clone(),
-                _ => self.settings.local_base_url.clone(),
-            };
-            request = request.with_endpoint(endpoint);
-        }
-        if let Some(key) = keys::resolve(model.provider) {
-            request = request.with_api_key(key);
-        }
+        eprintln!(
+            "RELAY TRACE generate: mode={} tools={}",
+            self.settings.interaction_mode,
+            request.tools.len()
+        );
 
         let assistant = ChatMessage::assistant(model.slug.clone(), Vec::new(), None);
         let message_id = assistant.id.clone();

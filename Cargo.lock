@@ -5485,6 +5485,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
+name = "relay-cli"
+version = "0.1.8"
+dependencies = [
+ "chrono",
+ "relay-core",
+ "relay-engine",
+ "relay-providers",
+ "relay-store",
+ "rpassword",
+ "rustix",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "relay-core"
 version = "0.1.8"
 dependencies = [
@@ -5493,6 +5512,32 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "uuid",
+]
+
+[[package]]
+name = "relay-engine"
+version = "0.1.8"
+dependencies = [
+ "chrono",
+ "flate2",
+ "futures-util",
+ "getrandom 0.3.4",
+ "hex",
+ "keyring",
+ "regex",
+ "relay-core",
+ "relay-providers",
+ "relay-store",
+ "reqwest",
+ "ring",
+ "serde_json",
+ "smol",
+ "tar",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "urlencoding",
+ "zeroize",
 ]
 
 [[package]]
@@ -5545,6 +5590,7 @@ dependencies = [
  "portable-pty",
  "regex",
  "relay-core",
+ "relay-engine",
  "relay-providers",
  "relay-store",
  "reqwest",
@@ -5694,12 +5740,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "rpassword"
+version = "7.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fa2c5d9304b618df61ff17f3d3485c6e1854a3d94902a49abbb8d43dfbe0464"
+dependencies = [
+ "libc",
+ "rtoolbox",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "rsqlite-vfs"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "353b74f9810d5b085b6c42c9d86a5f0fdb795553235cdd48753b32e3809d18a7"
 dependencies = [
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "rtoolbox"
+version = "0.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a1efe12a1469752d0e6ff5ebec0b6ef4924cc5c4c71046b0ec730040535819d"
+dependencies = [
+ "libc",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6883,6 +6950,7 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys 0.61.2",

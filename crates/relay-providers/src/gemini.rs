@@ -37,7 +37,8 @@ pub(crate) fn body(request: &ChatRequest) -> Value {
         tool_msgs.reverse();
         if !tool_msgs.is_empty() {
             // map call_id -> name from last assistant tool_calls
-            let mut name_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+            let mut name_map: std::collections::HashMap<String, String> =
+                std::collections::HashMap::new();
             for m in request.messages.iter().rev() {
                 if m.role == relay_core::Role::Assistant {
                     for c in &m.tool_calls {
@@ -254,8 +255,10 @@ pub(crate) async fn stream(
                 "step.start" => {
                     if let Some(step) = value.get("step") {
                         if step.get("type").and_then(Value::as_str) == Some("function_call") {
-                            func_call_id = step.get("id").and_then(Value::as_str).map(str::to_owned);
-                            func_call_name = step.get("name").and_then(Value::as_str).map(str::to_owned);
+                            func_call_id =
+                                step.get("id").and_then(Value::as_str).map(str::to_owned);
+                            func_call_name =
+                                step.get("name").and_then(Value::as_str).map(str::to_owned);
                             func_args.clear();
                             if let Some(args) = step.get("arguments") {
                                 if let Some(s) = args.as_str() {

@@ -11,8 +11,8 @@ use gpui_kit::component::{
 };
 use gpui_kit::prelude::{FluentBuilder as _, StatefulInteractiveElement as _};
 use gpui_kit::{
-    AppContext as _, Context, InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
-    Styled as _, Window, div, px,
+    AppContext as _, Context, InteractiveElement as _, IntoElement, ParentElement as _,
+    SharedString, Styled as _, Window, div, px,
 };
 use relay_core::{ConversationSummary, find_model};
 
@@ -117,9 +117,17 @@ impl RelayApp {
                                             .tooltip("Export all conversations")
                                             .on_click(cx.listener(|this, _, window, cx| {
                                                 if let Ok(md) = this.store.export_all_markdown() {
-                                                    let path = this.store.path().parent().unwrap_or(std::path::Path::new(".")).join("relay-export-all.md");
+                                                    let path = this
+                                                        .store
+                                                        .path()
+                                                        .parent()
+                                                        .unwrap_or(std::path::Path::new("."))
+                                                        .join("relay-export-all.md");
                                                     let _ = std::fs::write(&path, md);
-                                                    window.push_notification(format!("Exported to {}", path.display()), cx);
+                                                    window.push_notification(
+                                                        format!("Exported to {}", path.display()),
+                                                        cx,
+                                                    );
                                                 }
                                             })),
                                     )
@@ -148,7 +156,10 @@ impl RelayApp {
                                     Button::new("delete-selected")
                                         .danger()
                                         .small()
-                                        .label(format!("Delete ({})", self.selected_conversations.len()))
+                                        .label(format!(
+                                            "Delete ({})",
+                                            self.selected_conversations.len()
+                                        ))
                                         .on_click(cx.listener(|this, _, window, cx| {
                                             for id in this.selected_conversations.clone() {
                                                 let _ = this.store.delete_conversation(&id);
@@ -247,32 +258,37 @@ impl RelayApp {
                 this.hover(|style| style.bg(theme.list_hover))
             })
             .cursor_pointer()
-            .on_click(cx.listener(move |this, _: &gpui_kit::ClickEvent, window, cx| {
-                if this.bulk_select_mode {
-                    let id = id.clone();
-                    if this.selected_conversations.contains(&id) {
-                        this.selected_conversations.remove(&id);
-                    } else {
-                        this.selected_conversations.insert(id);
+            .on_click(
+                cx.listener(move |this, _: &gpui_kit::ClickEvent, window, cx| {
+                    if this.bulk_select_mode {
+                        let id = id.clone();
+                        if this.selected_conversations.contains(&id) {
+                            this.selected_conversations.remove(&id);
+                        } else {
+                            this.selected_conversations.insert(id);
+                        }
+                        cx.notify();
+                        return;
                     }
-                    cx.notify();
-                    return;
-                }
-                this.open_conversation(id.clone(), window, cx);
-            }))
+                    this.open_conversation(id.clone(), window, cx);
+                }),
+            )
             .when(self.bulk_select_mode, |this| {
                 let id = summary.id.clone();
                 this.child(
-                    gpui_kit::component::switch::Switch::new(SharedString::from(format!("sel-{}", summary.id)))
-                        .checked(self.selected_conversations.contains(&id))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            if this.selected_conversations.contains(&id) {
-                                this.selected_conversations.remove(&id);
-                            } else {
-                                this.selected_conversations.insert(id.clone());
-                            }
-                            cx.notify();
-                        })),
+                    gpui_kit::component::switch::Switch::new(SharedString::from(format!(
+                        "sel-{}",
+                        summary.id
+                    )))
+                    .checked(self.selected_conversations.contains(&id))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if this.selected_conversations.contains(&id) {
+                            this.selected_conversations.remove(&id);
+                        } else {
+                            this.selected_conversations.insert(id.clone());
+                        }
+                        cx.notify();
+                    })),
                 )
             })
             .child(
@@ -280,41 +296,47 @@ impl RelayApp {
                     .flex_1()
                     .min_w_0()
                     .gap_0p5()
-                    .child(if self.renaming_conversation.as_ref().map(|(id, _)| id) == Some(&summary.id) {
-                        let input = self.renaming_conversation.as_ref().unwrap().1.clone();
-                        let id = summary.id.clone();
-                        h_flex()
-                            .gap_1()
-                            .child(Input::new(&input).flex_1())
-                            .child(
-                                Button::new("save-rename")
-                                    .ghost()
-                                    .xsmall()
-                                    .icon(Icon::new(IconName::Check))
-                                    .on_click(cx.listener(move |this, _, window, cx| {
-                                        let new_title = input.read(cx).value().trim().to_owned();
-                                        if !new_title.is_empty() {
-                                            let _ = this.store.rename_conversation(&id, &new_title);
-                                        }
-                                        this.renaming_conversation = None;
-                                        this.refresh_conversations(cx);
-                                        cx.notify();
-                                    })),
-                            )
-                            .into_any_element()
-                    } else {
-                        div()
-                            .text_sm()
-                            .when(selected, |this| this.font_medium())
-                            .text_color(if selected {
-                                theme.sidebar_accent_foreground
-                            } else {
-                                theme.sidebar_foreground
-                            })
-                            .text_ellipsis()
-                            .child(SharedString::from(summary.title.clone()))
-                            .into_any_element()
-                    })
+                    .child(
+                        if self.renaming_conversation.as_ref().map(|(id, _)| id)
+                            == Some(&summary.id)
+                        {
+                            let input = self.renaming_conversation.as_ref().unwrap().1.clone();
+                            let id = summary.id.clone();
+                            h_flex()
+                                .gap_1()
+                                .child(Input::new(&input).flex_1())
+                                .child(
+                                    Button::new("save-rename")
+                                        .ghost()
+                                        .xsmall()
+                                        .icon(Icon::new(IconName::Check))
+                                        .on_click(cx.listener(move |this, _, window, cx| {
+                                            let new_title =
+                                                input.read(cx).value().trim().to_owned();
+                                            if !new_title.is_empty() {
+                                                let _ =
+                                                    this.store.rename_conversation(&id, &new_title);
+                                            }
+                                            this.renaming_conversation = None;
+                                            this.refresh_conversations(cx);
+                                            cx.notify();
+                                        })),
+                                )
+                                .into_any_element()
+                        } else {
+                            div()
+                                .text_sm()
+                                .when(selected, |this| this.font_medium())
+                                .text_color(if selected {
+                                    theme.sidebar_accent_foreground
+                                } else {
+                                    theme.sidebar_foreground
+                                })
+                                .text_ellipsis()
+                                .child(SharedString::from(summary.title.clone()))
+                                .into_any_element()
+                        },
+                    )
                     .child(
                         div()
                             .text_xs()
@@ -332,7 +354,11 @@ impl RelayApp {
                         Button::new(SharedString::from(format!("pin-{}", summary.id)))
                             .ghost()
                             .xsmall()
-                            .icon(Icon::new(if summary.pinned { IconName::Pin } else { IconName::Pin }))
+                            .icon(Icon::new(if summary.pinned {
+                                IconName::Pin
+                            } else {
+                                IconName::Pin
+                            }))
                             .tooltip(if summary.pinned { "Unpin" } else { "Pin" })
                             .on_click(cx.listener({
                                 let id = summary.id.clone();
@@ -373,7 +399,8 @@ impl RelayApp {
                                     let input = cx.new(|cx| {
                                         InputState::new(window, cx).placeholder("New title…")
                                     });
-                                    input.update(cx, |s, cx| s.set_value(title.clone(), window, cx));
+                                    input
+                                        .update(cx, |s, cx| s.set_value(title.clone(), window, cx));
                                     this.renaming_conversation = Some((id.clone(), input));
                                     cx.notify();
                                 }
@@ -391,9 +418,17 @@ impl RelayApp {
                                 move |this, _: &gpui_kit::ClickEvent, window, cx| {
                                     cx.stop_propagation();
                                     if let Ok(md) = this.store.export_markdown(&id) {
-                                        let path = this.store.path().parent().unwrap_or(std::path::Path::new(".")).join(format!("{}.md", title.replace('/', "-")));
+                                        let path = this
+                                            .store
+                                            .path()
+                                            .parent()
+                                            .unwrap_or(std::path::Path::new("."))
+                                            .join(format!("{}.md", title.replace('/', "-")));
                                         let _ = std::fs::write(&path, md);
-                                        window.push_notification(format!("Exported to {}", path.display()), cx);
+                                        window.push_notification(
+                                            format!("Exported to {}", path.display()),
+                                            cx,
+                                        );
                                     }
                                 }
                             })),

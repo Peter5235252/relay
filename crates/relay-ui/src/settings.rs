@@ -197,7 +197,8 @@ impl SettingsView {
             "4096",
             &settings.bundled_context_size.to_string(),
         );
-        let mcp_json = serde_json::to_string_pretty(&settings.mcp_servers).unwrap_or_else(|_| "[]".into());
+        let mcp_json =
+            serde_json::to_string_pretty(&settings.mcp_servers).unwrap_or_else(|_| "[]".into());
         let mcp_config = textarea(window, cx, "JSON array of MCP servers", &mcp_json);
 
         let mut key_inputs = Vec::new();
