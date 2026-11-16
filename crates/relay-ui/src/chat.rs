@@ -17,8 +17,7 @@ use gpui_kit::{
     KeyDownEvent, ParentElement as _, SharedString, Styled as _, Window, div, px,
 };
 use relay_core::{
-    AgentMode, ChatMessage, ContentBlock, Role, ToolApproval, estimate_tokens, format_tokens,
-    format_tokens_exact,
+    AgentMode, ChatMessage, ContentBlock, Role, ToolApproval, estimate_tokens, format_tokens_exact,
 };
 
 use crate::app::RelayApp;
@@ -288,29 +287,42 @@ impl RelayApp {
 
         let mut total_in = 0u64;
         let mut total_out = 0u64;
-        let mut latest_context = 0u64;
         let mut estimated = 0u64;
-        for message in &self.messages {
+        let mut last_usage_index = None;
+        for (index, message) in self.messages.iter().enumerate() {
             estimated += estimate_message_tokens(message);
             if let Some(usage) = message.usage {
                 total_in += u64::from(usage.input_tokens);
                 total_out += u64::from(usage.output_tokens);
-                latest_context = u64::from(usage.input_tokens) + u64::from(usage.output_tokens);
+                last_usage_index = Some(index);
             }
         }
-        let session_tokens = (total_in + total_out).max(estimated);
-        let used = latest_context.max(estimated);
+        let session_tokens = if total_in + total_out > 0 {
+            total_in + total_out
+        } else {
+            estimated
+        };
+        // Provider usage describes the prompt as it existed for that reply.
+        // Add any later turns so the meter still reflects the live context.
+        let used = match last_usage_index {
+            Some(index) => {
+                let usage = self.messages[index].usage.unwrap_or_default();
+                u64::from(usage.input_tokens)
+                    + u64::from(usage.output_tokens)
+                    + self.messages[index + 1..]
+                        .iter()
+                        .map(estimate_message_tokens)
+                        .sum::<u64>()
+            }
+            None => estimated,
+        };
         let percent = if window > 0 {
             used as f64 / f64::from(window) * 100.0
         } else {
             0.0
         };
         let ratio = (percent / 100.0).clamp(0.0, 1.0);
-        let percent_label = if used > 0 && percent < 0.05 {
-            "<0.1%".to_owned()
-        } else {
-            format!("{percent:.1}%")
-        };
+        let percent_label = format!("{percent:.2}%");
         let bar_color = if percent >= 90.0 {
             theme.danger
         } else {
@@ -334,8 +346,8 @@ impl RelayApp {
                 theme.success
             }))
             .child(div().child(SharedString::from(format!(
-                "Context ~{} / {} tokens ({percent_label})",
-                format_tokens(used),
+                "Context {} / {} tokens ({percent_label})",
+                format_tokens_exact(used),
                 format_tokens_exact(u64::from(window))
             ))))
             .child(
@@ -356,16 +368,13 @@ impl RelayApp {
             .child(div().flex_1())
             .child(div().child(SharedString::from(if has_usage {
                 format!(
-                    "Session ~{} tokens · {} in / {} out",
-                    format_tokens(session_tokens),
-                    format_tokens(total_in),
-                    format_tokens(total_out)
+                    "Session {} tokens · {} in / {} out",
+                    format_tokens_exact(session_tokens),
+                    format_tokens_exact(total_in),
+                    format_tokens_exact(total_out)
                 )
             } else {
-                format!(
-                    "Session ~{} tokens (estimated)",
-                    format_tokens(session_tokens)
-                )
+                format!("Session {} tokens", format_tokens_exact(session_tokens))
             })))
     }
 
@@ -863,8 +872,8 @@ impl RelayApp {
                 if let Some(usage) = usage {
                     meta.push(format!(
                         "{} in · {} out",
-                        format_tokens(u64::from(usage.input_tokens)),
-                        format_tokens(u64::from(usage.output_tokens))
+                        format_tokens_exact(u64::from(usage.input_tokens)),
+                        format_tokens_exact(u64::from(usage.output_tokens))
                     ));
                     if let Some(cost) = model.estimate_cost(&usage) {
                         meta.push(format_cost(cost));

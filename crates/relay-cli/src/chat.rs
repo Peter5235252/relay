@@ -293,7 +293,7 @@ fn print_banner(ctx: &CliContext, session: &ChatSession) {
     println!(
         "{} · {} context",
         output::bold(&model.name),
-        output::tokens(u64::from(window))
+        format_tokens_exact(u64::from(window))
     );
     println!(
         "{}",
@@ -570,11 +570,7 @@ async fn stream_assistant(
             } else {
                 0.0
             };
-            let percent_label = if used > 0 && percent < 0.05 {
-                "<0.1%".to_owned()
-            } else {
-                format!("{percent:.1}%")
-            };
+            let percent_label = format!("{percent:.2}%");
             let mut total_in = 0u64;
             let mut total_out = 0u64;
             for previous in &session.messages {
@@ -587,19 +583,20 @@ async fn stream_assistant(
                 total_in += u64::from(usage.input_tokens);
                 total_out += u64::from(usage.output_tokens);
             }
-            let session_tokens = (total_in + total_out).max(estimated);
+            let session_tokens = if total_in + total_out > 0 {
+                total_in + total_out
+            } else {
+                estimated
+            };
             let session_label = if total_in + total_out > 0 {
                 format!(
-                    "session ~{} tokens · {} in / {} out",
-                    output::tokens(session_tokens),
-                    output::tokens(total_in),
-                    output::tokens(total_out)
+                    "session {} tokens · {} in / {} out",
+                    format_tokens_exact(session_tokens),
+                    format_tokens_exact(total_in),
+                    format_tokens_exact(total_out)
                 )
             } else {
-                format!(
-                    "session ~{} tokens (estimated)",
-                    output::tokens(session_tokens)
-                )
+                format!("session {} tokens", format_tokens_exact(session_tokens))
             };
             let cost = report
                 .cost
@@ -608,8 +605,8 @@ async fn stream_assistant(
             eprintln!(
                 "{}",
                 output::dim(&format!(
-                    "  ~{} / {} context ({percent_label}) · {session_label}{cost}",
-                    output::tokens(used),
+                    "  {} / {} context ({percent_label}) · {session_label}{cost}",
+                    format_tokens_exact(used),
                     format_tokens_exact(u64::from(window)),
                 ))
             );
@@ -1328,19 +1325,19 @@ fn render_messages_from(
                 out.push_str(&format!(
                     "  {}\n",
                     output::dim(&format!(
-                        "~{} / {} context · {} in / {} out{cost}",
-                        output::tokens(usage.total_tokens()),
+                        "{} / {} context · {} in / {} out{cost}",
+                        format_tokens_exact(usage.total_tokens()),
                         format_tokens_exact(u64::from(window)),
-                        output::tokens(u64::from(usage.input_tokens)),
-                        output::tokens(u64::from(usage.output_tokens))
+                        format_tokens_exact(u64::from(usage.input_tokens)),
+                        format_tokens_exact(u64::from(usage.output_tokens))
                     ))
                 ));
             } else {
                 out.push_str(&format!(
                     "  {}\n",
                     output::dim(&format!(
-                        "~{} tokens (estimated) · {} context",
-                        output::tokens(estimate_message_tokens(message)),
+                        "{} tokens · {} context",
+                        format_tokens_exact(estimate_message_tokens(message)),
                         format_tokens_exact(u64::from(window))
                     ))
                 ));
