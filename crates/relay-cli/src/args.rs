@@ -303,16 +303,9 @@ fn parse_chat(args: &[String]) -> Result<(ChatOptions, Option<String>), String> 
         };
         match name {
             "-p" | "--prompt" => {
-                if let Some(value) = inline {
-                    prompt.push(value.to_owned());
-                    index += 1;
-                } else if index + 1 < args.len() {
-                    index += 1;
-                    prompt.extend(args[index..].iter().cloned());
-                    break;
-                } else {
-                    index += 1;
-                }
+                let value = take_value(&mut index)?;
+                prompt.push(value);
+                index += 1;
             }
             "--model" | "-m" => {
                 options.model = Some(take_value(&mut index)?);
@@ -331,9 +324,35 @@ fn parse_chat(args: &[String]) -> Result<(ChatOptions, Option<String>), String> 
                 options.new = true;
                 index += 1;
             }
-            "--reasoning" | "-r" => {
+            "--reasoning" | "-r" | "--reasoning-effort" => {
                 let value = take_value(&mut index)?;
                 options.reasoning = Some(parse_reasoning(&value)?);
+                index += 1;
+            }
+            "--temperature" | "--temp" => {
+                let value = take_value(&mut index)?;
+                options.temperature = Some(parse_temperature(&value)?);
+                index += 1;
+            }
+            "--max-output" | "--max-output-tokens" | "--max-tokens" => {
+                let value = take_value(&mut index)?;
+                options.max_output_tokens = Some(parse_max_output_tokens(&value)?);
+                index += 1;
+            }
+            "--preset" | "--personality" => {
+                options.preset = Some(take_value(&mut index)?);
+                index += 1;
+            }
+            "--instructions" | "--custom-instructions" => {
+                options.instructions = Some(take_value(&mut index)?);
+                index += 1;
+            }
+            "--instructions-file" => {
+                let path = take_value(&mut index)?;
+                options.instructions = Some(
+                    std::fs::read_to_string(&path)
+                        .map_err(|error| format!("could not read {path}: {error}"))?,
+                );
                 index += 1;
             }
             "--mode" => {
@@ -366,7 +385,11 @@ fn parse_chat(args: &[String]) -> Result<(ChatOptions, Option<String>), String> 
                 options.show_thinking = Some(true);
                 index += 1;
             }
-            "--no-thinking" => {
+            "--show-thinking" => {
+                options.show_thinking = Some(true);
+                index += 1;
+            }
+            "--no-thinking" | "--hide-thinking" => {
                 options.show_thinking = Some(false);
                 index += 1;
             }
@@ -807,6 +830,28 @@ fn parse_reasoning(value: &str) -> Result<ReasoningEffort, String> {
         .ok_or_else(|| "Reasoning must be one of: off, low, medium, high, max".to_owned())
 }
 
+fn parse_temperature(value: &str) -> Result<f64, String> {
+    let parsed: f64 = value
+        .trim()
+        .parse()
+        .map_err(|_| "Temperature must be a number between 0 and 2".to_owned())?;
+    if !parsed.is_finite() || !(0.0..=2.0).contains(&parsed) {
+        return Err("Temperature must be between 0 and 2".to_owned());
+    }
+    Ok(parsed)
+}
+
+fn parse_max_output_tokens(value: &str) -> Result<u32, String> {
+    let parsed: u32 = value
+        .trim()
+        .parse()
+        .map_err(|_| "Max output must be an integer".to_owned())?;
+    if parsed > 1_000_000 {
+        return Err("Max output must be 1,000,000 or less".to_owned());
+    }
+    Ok(parsed)
+}
+
 fn parse_interaction(value: &str) -> Result<String, String> {
     match value.trim().to_ascii_lowercase().as_str() {
         "chat" => Ok("chat".to_owned()),
@@ -892,6 +937,8 @@ Usage:
 
 Examples:
   relay-cli \"summarize this repo\"
+  relay-cli chat --reasoning high --temperature 0.2
+  relay-cli -p \"write a haiku\" --max-output 256 --preset creative
   relay-cli models
   relay-cli sessions list
   relay-cli settings set temperature 0.4
@@ -925,13 +972,23 @@ Chat options:
   -s, --session <id|last>   Resume a conversation
   -n, --new                 Start a new conversation
   -r, --reasoning <level>   off | low | medium | high | max
+      --temperature <0-2>   Sampling temperature (like the desktop Settings panel)
+      --max-output <tokens> Output cap; 0 uses the model default
+      --preset <id>         Personality preset
+      --instructions <text> Custom instructions for every conversation
+      --instructions-file <file>  Read custom instructions from a file
       --mode <chat|work>    Chat is web-only; Work enables file/command/MCP tools
       --plan / --build      Read-only Plan or writable Build mode (Work)
   -a, --approval <policy>   none | non-destructive | all
   -y, --yes                 Confirm installs/downloads non-interactively
       --json                Machine-readable output
-      --thinking            Show reasoning summaries
-      --no-thinking         Hide reasoning summaries
+      --thinking            Show reasoning summaries (--show-thinking)
+      --no-thinking         Hide reasoning summaries (--hide-thinking)
+
+Options are saved to the same settings the desktop app uses, so the next run
+keeps them. Use `relay-cli settings set` for a persistent value without a chat.
+Some providers ignore temperature while reasoning is active, matching the
+desktop app.
 
 Environment:
   RELAY_DATA_DIR       Override the data directory
@@ -957,6 +1014,9 @@ Interactive commands:
   /mode [chat|work]     Switch interaction mode
   /plan | /build        Switch Plan/Build agent mode
   /reasoning [level]    Show or set reasoning effort
+  /temperature [value]  Show or set sampling temperature (0.0-2.0)
+  /max-output [tokens|default]  Show or set the output cap
+  /instructions [text|clear|file <path>]  Show or set custom instructions
   /approval [policy]    Show or set tool approval policy
   /thinking [on|off]    Show or hide reasoning
   /rename <title>       Rename the current conversation
@@ -1016,6 +1076,10 @@ reasoning, temperature, max_output_tokens, custom_instructions, active_preset_id
 show_thinking, send_on_enter, ollama_base_url, ollama_model, local_base_url,
 local_model, bundled_model_variant, bundled_context_size, mcp_servers (JSON),
 font_family, mono_font_family, font_size, color_preset.
+
+Aliases: max_output, reasoning_effort, instructions, preset, thinking.
+Temperature accepts 0-2; max_output_tokens accepts 0 (model default) through
+1,000,000. Values live in the same settings store as the desktop app.
 "
 }
 
@@ -1159,6 +1223,71 @@ mod tests {
             }
             other => panic!("unexpected {other:?}"),
         }
+    }
+
+    #[test]
+    fn parses_generation_flags() {
+        let command = parse_from(vec![
+            "chat".to_owned(),
+            "--temperature".to_owned(),
+            "0.25".to_owned(),
+            "--max-output".to_owned(),
+            "512".to_owned(),
+            "--preset".to_owned(),
+            "creative".to_owned(),
+            "--instructions".to_owned(),
+            "Be concise.".to_owned(),
+            "--show-thinking".to_owned(),
+        ])
+        .expect("parse");
+        match command {
+            Command::Chat(options) => {
+                assert_eq!(options.temperature, Some(0.25));
+                assert_eq!(options.max_output_tokens, Some(512));
+                assert_eq!(options.preset.as_deref(), Some("creative"));
+                assert_eq!(options.instructions.as_deref(), Some("Be concise."));
+                assert_eq!(options.show_thinking, Some(true));
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_prompt_flags_after_prompt() {
+        let command = parse_from(vec![
+            "chat".to_owned(),
+            "-p".to_owned(),
+            "hello world".to_owned(),
+            "--json".to_owned(),
+            "--temperature".to_owned(),
+            "0.2".to_owned(),
+        ])
+        .expect("parse");
+        match command {
+            Command::Prompt(options, prompt) => {
+                assert_eq!(prompt, "hello world");
+                assert!(options.json);
+                assert_eq!(options.temperature, Some(0.2));
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_generation_flags() {
+        let temperature = parse_from(vec![
+            "chat".to_owned(),
+            "--temperature".to_owned(),
+            "3".to_owned(),
+        ]);
+        assert!(temperature.is_err());
+
+        let output = parse_from(vec![
+            "chat".to_owned(),
+            "--max-output".to_owned(),
+            "1000001".to_owned(),
+        ]);
+        assert!(output.is_err());
     }
 
     #[test]

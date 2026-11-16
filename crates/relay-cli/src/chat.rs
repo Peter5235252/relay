@@ -9,7 +9,8 @@ use std::io::{IsTerminal as _, Read as _, Write};
 
 use relay_core::{
     AgentMode, AppSettings, ChatMessage, ContentBlock, ConversationSummary, ModelSelection,
-    Provider, ReasoningEffort, Role, ToolApproval, Usage, estimate_tokens, format_tokens_exact,
+    Provider, ReasoningEffort, ReasoningKind, Role, ToolApproval, Usage, estimate_tokens,
+    format_tokens_exact,
 };
 use relay_engine::{agent, bundled, keys, local, mcp, memory, search, streaming};
 use relay_providers::StreamEvent;
@@ -28,6 +29,14 @@ pub struct ChatOptions {
     pub new: bool,
     /// Reasoning effort override.
     pub reasoning: Option<ReasoningEffort>,
+    /// Sampling temperature override.
+    pub temperature: Option<f64>,
+    /// Output cap override. Zero uses the model default.
+    pub max_output_tokens: Option<u32>,
+    /// Personality preset override.
+    pub preset: Option<String>,
+    /// Custom instructions override.
+    pub instructions: Option<String>,
     /// Interaction mode override (`chat` or `work`).
     pub interaction_mode: Option<String>,
     /// Plan/Build override.
@@ -49,6 +58,10 @@ impl Default for ChatOptions {
             session: None,
             new: false,
             reasoning: None,
+            temperature: None,
+            max_output_tokens: None,
+            preset: None,
+            instructions: None,
             interaction_mode: None,
             agent_mode: None,
             approval: None,
@@ -175,10 +188,20 @@ pub async fn run_prompt(
                 "reasoning_tokens": usage.reasoning_tokens,
             })
         });
+        let model = agent::resolve_model(&session.model_slug);
         output::json(&serde_json::json!({
             "conversation_id": session.conversation_id,
             "title": session.title,
             "model": session.model_slug,
+            "context_window": agent::context_window(&ctx.settings, &model),
+            "generation": {
+                "temperature": ctx.settings.temperature,
+                "max_output_tokens": ctx.settings.max_output_tokens,
+                "reasoning": agent::effective_reasoning(&ctx.settings, &model),
+                "reasoning_supported": model.reasoning != ReasoningKind::None,
+                "preset": ctx.settings.active_preset_id,
+                "custom_instructions": ctx.settings.custom_instructions,
+            },
             "text": report.text,
             "thinking": if show_thinking { Some(report.thinking.clone()) } else { None },
             "usage": usage,
@@ -202,6 +225,21 @@ fn apply_options(ctx: &mut CliContext, options: &ChatOptions) -> Result<bool, St
     }
     if let Some(reasoning) = options.reasoning {
         ctx.settings.reasoning = reasoning;
+    }
+    if let Some(temperature) = options.temperature {
+        ctx.settings.temperature = temperature;
+    }
+    if let Some(max_output) = options.max_output_tokens {
+        ctx.settings.max_output_tokens = max_output;
+    }
+    if let Some(preset) = &options.preset {
+        if !commands::preset_exists(ctx, preset)? {
+            return Err(format!("Unknown preset: {preset}"));
+        }
+        ctx.settings.active_preset_id = preset.clone();
+    }
+    if let Some(instructions) = &options.instructions {
+        ctx.settings.custom_instructions = instructions.clone();
     }
     if let Some(mode) = &options.interaction_mode {
         ctx.settings.interaction_mode = commands::parse_interaction(mode)?;
@@ -295,18 +333,35 @@ fn print_banner(ctx: &CliContext, session: &ChatSession) {
         output::bold(&model.name),
         format_tokens_exact(u64::from(window))
     );
+    let reasoning = if model.reasoning == ReasoningKind::None {
+        "reasoning not supported".to_owned()
+    } else {
+        format!(
+            "reasoning {}",
+            agent::effective_reasoning(&ctx.settings, &model).label()
+        )
+    };
     println!(
         "{}",
         output::dim(&format!(
-            "{} · {} · reasoning {} · approval {}",
+            "{} · {} · {} · approval {}",
             if ctx.settings.interaction_mode == "chat" {
                 "Chat"
             } else {
                 "Work"
             },
             ctx.settings.agent_mode.label(),
-            ctx.settings.reasoning.label(),
+            reasoning,
             ctx.settings.tool_approval.label()
+        ))
+    );
+    println!(
+        "{}",
+        output::dim(&format!(
+            "temp {:.2} · output {} · preset {}",
+            ctx.settings.temperature,
+            output::token_limit(ctx.settings.max_output_tokens),
+            ctx.settings.active_preset_id,
         ))
     );
     match &session.conversation_id {
@@ -834,12 +889,32 @@ async fn run_slash(
         "model" => {
             if rest.is_empty() {
                 let model = agent::resolve_model(&session.model_slug);
+                let window = agent::context_window(&ctx.settings, &model);
                 println!(
-                    "{} · {} · {} context · reasoning {}",
+                    "{} · {} · {} context · output up to {}",
                     model.slug,
                     model.provider.label(),
-                    format_tokens_exact(u64::from(agent::context_window(&ctx.settings, &model))),
-                    ctx.settings.reasoning.label()
+                    format_tokens_exact(u64::from(window)),
+                    format_tokens_exact(u64::from(model.max_output))
+                );
+                if model.reasoning == ReasoningKind::None {
+                    println!(
+                        "Reasoning: {} · temperature {:.2}",
+                        commands::reasoning_kind_label(model.reasoning),
+                        ctx.settings.temperature
+                    );
+                } else {
+                    println!(
+                        "Reasoning: {} ({}) · temperature {:.2}",
+                        agent::effective_reasoning(&ctx.settings, &model).label(),
+                        commands::reasoning_kind_label(model.reasoning),
+                        ctx.settings.temperature
+                    );
+                }
+                println!(
+                    "Output cap: {} · preset {}",
+                    output::token_limit(ctx.settings.max_output_tokens),
+                    ctx.settings.active_preset_id
                 );
                 println!("Use /model <slug> or /models.");
             } else {
@@ -857,7 +932,7 @@ async fn run_slash(
                 println!("Model: {rest}");
             }
         }
-        "models" => commands::list_models(false)?,
+        "models" => commands::list_models(&ctx.settings, false)?,
         "mode" => {
             if rest.is_empty() {
                 println!("{}", ctx.settings.interaction_mode);
@@ -884,6 +959,58 @@ async fn run_slash(
                 ctx.settings.reasoning = commands::parse_reasoning(rest)?;
                 ctx.save()?;
                 println!("Reasoning: {}", ctx.settings.reasoning.label());
+            }
+        }
+        "temperature" | "temp" => {
+            if rest.is_empty() {
+                println!("{:.2}", ctx.settings.temperature);
+            } else {
+                ctx.settings.temperature = commands::parse_temperature(rest)?;
+                ctx.save()?;
+                println!("Temperature: {:.2}", ctx.settings.temperature);
+            }
+        }
+        "max-output" | "max_output" | "max-tokens" => {
+            if rest.is_empty() {
+                println!("{}", output::token_limit(ctx.settings.max_output_tokens));
+            } else if rest.eq_ignore_ascii_case("default") || rest == "0" {
+                ctx.settings.max_output_tokens = 0;
+                ctx.save()?;
+                println!("Max output: model default");
+            } else {
+                ctx.settings.max_output_tokens = commands::parse_max_output_tokens(rest)?;
+                ctx.save()?;
+                println!(
+                    "Max output: {}",
+                    output::token_limit(ctx.settings.max_output_tokens)
+                );
+            }
+        }
+        "instructions" => {
+            if rest.is_empty() {
+                if ctx.settings.custom_instructions.trim().is_empty() {
+                    println!("No custom instructions.");
+                } else {
+                    println!("{}", ctx.settings.custom_instructions);
+                }
+            } else if rest.eq_ignore_ascii_case("clear") {
+                ctx.settings.custom_instructions.clear();
+                ctx.save()?;
+                println!("Custom instructions cleared.");
+            } else if let Some(path) = rest.strip_prefix("file ") {
+                let path = path.trim();
+                if path.is_empty() {
+                    return Err("Usage: /instructions file <path>".to_owned());
+                }
+                let text = std::fs::read_to_string(path)
+                    .map_err(|error| format!("could not read {path}: {error}"))?;
+                ctx.settings.custom_instructions = text;
+                ctx.save()?;
+                println!("Custom instructions loaded from {path}.");
+            } else {
+                ctx.settings.custom_instructions = rest.to_owned();
+                ctx.save()?;
+                println!("Custom instructions updated.");
             }
         }
         "approval" => {
@@ -1022,7 +1149,7 @@ async fn run_slash(
             output::copy_to_clipboard(&text)?;
             println!("Copied to the clipboard.");
         }
-        "settings" => print_settings(ctx),
+        "settings" => print_settings(ctx, session),
         "presets" => {
             let presets = ctx.store.presets().map_err(|error| error.to_string())?;
             let rows = presets
@@ -1168,27 +1295,34 @@ async fn run_slash(
     Ok(Flow::Continue)
 }
 
-fn print_settings(ctx: &CliContext) {
-    let model = agent::resolve_model(&ctx.settings.default_model);
+fn print_settings(ctx: &CliContext, session: &ChatSession) {
+    let model = agent::resolve_model(&session.model_slug);
+    let window = agent::context_window(&ctx.settings, &model);
     println!(
         "Model:            {} ({})",
         model.name,
         model.provider.label()
     );
+    println!("Model slug:       {}", model.slug);
+    println!(
+        "Context window:   {}",
+        format_tokens_exact(u64::from(window))
+    );
     println!("Interaction:      {}", ctx.settings.interaction_mode);
     println!("Agent mode:       {}", ctx.settings.agent_mode.label());
     println!("Tool approval:    {}", ctx.settings.tool_approval.label());
-    println!("Reasoning:        {}", ctx.settings.reasoning.label());
+    println!(
+        "Reasoning:        {} · {}",
+        agent::effective_reasoning(&ctx.settings, &model).label(),
+        commands::reasoning_kind_label(model.reasoning)
+    );
     println!("Show thinking:    {}", ctx.settings.show_thinking);
     println!("Preset:           {}", ctx.settings.active_preset_id);
     println!("Temperature:      {:.2}", ctx.settings.temperature);
     println!(
-        "Max output:       {}",
-        if ctx.settings.max_output_tokens == 0 {
-            "model default".to_owned()
-        } else {
-            ctx.settings.max_output_tokens.to_string()
-        }
+        "Max output:       {} (model allows up to {})",
+        output::token_limit(ctx.settings.max_output_tokens),
+        format_tokens_exact(u64::from(model.max_output))
     );
     println!("Ollama:           {}", ctx.settings.ollama_base_url);
     println!("Ollama model:     {}", ctx.settings.ollama_model);

@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 
 use relay_core::{
     AgentMode, AppSettings, ColorPreset, ConversationSummary, McpServerConfig, PersonalityPreset,
-    Provider, ReasoningEffort, ToolApproval, models,
+    Provider, ReasoningEffort, ReasoningKind, ToolApproval, format_tokens_exact, models,
 };
 use relay_engine::{agent, bundled, keys, local, mcp, search};
 use relay_store::Store;
@@ -83,7 +83,7 @@ pub async fn dispatch(command: Command, ctx: &mut CliContext) -> Result<(), Stri
         Command::Chat(options) => chat::run_chat(ctx, options).await,
         Command::Prompt(options, prompt) => chat::run_prompt(ctx, options, prompt).await,
         Command::Sessions(command) => sessions(ctx, command),
-        Command::Models { json } => list_models(json),
+        Command::Models { json } => list_models(&ctx.settings, json),
         Command::Model { slug } => model(ctx, slug),
         Command::Settings(command) => settings(ctx, command),
         Command::Keys(command) => provider_keys(command),
@@ -463,7 +463,7 @@ pub fn resolve_session(store: &Store, input: &str) -> Result<ConversationSummary
 
 // MARK: Models
 
-pub fn list_models(json: bool) -> Result<(), String> {
+pub fn list_models(settings: &AppSettings, json: bool) -> Result<(), String> {
     let installed = local::installed_ollama_models();
     if json {
         let cloud = models()
@@ -489,6 +489,8 @@ pub fn list_models(json: bool) -> Result<(), String> {
                     "name": variant.display_name(),
                     "downloaded": bundled::downloaded(*variant),
                     "tagline": variant.tagline(),
+                    "context_window": settings.bundled_context_size.max(512),
+                    "reasoning": ReasoningKind::Toggle,
                 })
             })
             .collect::<Vec<_>>();
@@ -501,13 +503,20 @@ pub fn list_models(json: bool) -> Result<(), String> {
                     "name": model.name,
                     "license": model.license,
                     "installed": local::installed(model.tag),
+                    "reasoning": ReasoningKind::Toggle,
                 })
             })
             .collect::<Vec<_>>();
         return output::json(&json!({
             "cloud": cloud,
             "bundled": bundled_models,
+            "local": {
+                "base_url": settings.local_base_url,
+                "model": settings.local_model,
+            },
             "ollama": {
+                "base_url": settings.ollama_base_url,
+                "model": settings.ollama_model,
                 "installed": installed,
                 "curated": curated,
             },
@@ -519,34 +528,60 @@ pub fn list_models(json: bool) -> Result<(), String> {
         println!("{}", provider.label());
         for spec in models().iter().filter(|spec| spec.provider == provider) {
             println!(
-                "  {:<26} {:<26} {}",
+                "  {:<26} {:<26} {:>9} ctx · {}",
                 spec.slug,
                 spec.name,
-                output::truncate(spec.tagline, 62)
+                relay_core::format_tokens_exact(u64::from(spec.context_window)),
+                reasoning_kind_label(spec.reasoning)
             );
+            println!("  {:<26} {}", "", output::truncate(spec.tagline, 90));
         }
     }
 
     output::heading("Bundled local models (strictly opt-in downloads)");
     for variant in bundled::BundledVariant::all() {
         println!(
-            "  {:<46} {} · {}",
+            "  {:<46} {} · {} · {} ctx",
             format!("local/{}", variant.id()),
             if bundled::downloaded(variant) {
                 "downloaded"
             } else {
                 "not downloaded"
             },
-            variant.display_name()
+            variant.display_name(),
+            relay_core::format_tokens_exact(u64::from(settings.bundled_context_size.max(512)))
+        );
+    }
+
+    output::heading("OpenAI-compatible endpoint");
+    let local_model = settings.local_model.trim();
+    let local_is_bundled = !local_model.is_empty()
+        && (bundled::BundledVariant::from_id(local_model).is_some()
+            || bundled::BundledVariant::from_model_slug(&format!("local/{local_model}")).is_some());
+    if local_model.is_empty() || local_is_bundled {
+        println!("  No local model configured (settings set local_model <name>).");
+    } else {
+        println!(
+            "  local/{} · {} · {} context · reasoning not supported",
+            local_model,
+            settings.local_base_url,
+            format_tokens_exact(u64::from(
+                relay_core::ModelSelection::openai_compatible(local_model).context_window
+            ))
         );
     }
 
     output::heading("Ollama models");
-    if installed.is_empty() {
+    let configured_ollama = settings.ollama_model.trim();
+    if configured_ollama.is_empty() && installed.is_empty() {
         println!("  No installed models detected (Ollama may be stopped).");
     } else {
+        if !configured_ollama.is_empty() && !installed.iter().any(|name| name == configured_ollama)
+        {
+            println!("  ollama/{configured_ollama} · configured · on/off reasoning");
+        }
         for name in &installed {
-            println!("  ollama/{name}");
+            println!("  ollama/{name} · on/off reasoning");
         }
     }
     let mut installable = Vec::new();
@@ -580,10 +615,19 @@ fn model(ctx: &mut CliContext, slug: Option<String>) -> Result<(), String> {
     let current = agent::resolve_model(&ctx.settings.default_model);
     println!("{}", current.slug);
     eprintln!(
-        "{} · {} · {} context",
+        "{} · {} · {} context · model max output {}",
         current.name,
         current.provider.label(),
-        relay_core::format_tokens_exact(u64::from(agent::context_window(&ctx.settings, &current)))
+        relay_core::format_tokens_exact(u64::from(agent::context_window(&ctx.settings, &current))),
+        format_tokens_exact(u64::from(current.max_output))
+    );
+    eprintln!(
+        "reasoning {} ({}) · temperature {:.2} · output cap {} · preset {}",
+        agent::effective_reasoning(&ctx.settings, &current).label(),
+        reasoning_kind_label(current.reasoning),
+        ctx.settings.temperature,
+        output::token_limit(ctx.settings.max_output_tokens),
+        ctx.settings.active_preset_id
     );
     Ok(())
 }
@@ -608,9 +652,10 @@ fn settings(ctx: &mut CliContext, command: SettingsCommand) -> Result<(), String
             Ok(())
         }
         SettingsCommand::Get { key } => {
+            let key = canonical_setting_key(&key);
             let value = serde_json::to_value(&ctx.settings).map_err(|error| error.to_string())?;
             let value = value
-                .get(&key)
+                .get(key)
                 .ok_or_else(|| format!("Unknown setting: {key}"))?;
             match value {
                 Value::String(text) => println!("{text}"),
@@ -657,7 +702,23 @@ fn format_setting(value: &Value) -> String {
     }
 }
 
+/// Canonical setting name, accepting the friendly aliases used in chat flags.
+fn canonical_setting_key(key: &str) -> &str {
+    let key = key.trim();
+    match key {
+        "max_output" | "max-output" | "max_tokens" | "max-tokens" => "max_output_tokens",
+        "reasoning_effort" | "reasoning-effort" => "reasoning",
+        "instructions" | "custom-instructions" => "custom_instructions",
+        "preset" | "personality" => "active_preset_id",
+        "ollama_url" => "ollama_base_url",
+        "local_url" => "local_base_url",
+        "thinking" => "show_thinking",
+        _ => key,
+    }
+}
+
 fn set_setting(ctx: &mut CliContext, key: &str, value: &str) -> Result<(), String> {
+    let key = canonical_setting_key(key);
     let value = value.trim();
     match key {
         "default_model" => {
@@ -671,30 +732,13 @@ fn set_setting(ctx: &mut CliContext, key: &str, value: &str) -> Result<(), Strin
         "tool_approval" => ctx.settings.tool_approval = parse_approval(value)?,
         "interaction_mode" => ctx.settings.interaction_mode = parse_interaction(value)?,
         "reasoning" => ctx.settings.reasoning = parse_reasoning(value)?,
-        "temperature" => {
-            let parsed: f64 = value
-                .parse()
-                .map_err(|_| "temperature must be a number".to_owned())?;
-            if !parsed.is_finite() {
-                return Err("temperature must be finite".to_owned());
-            }
-            ctx.settings.temperature = parsed;
-        }
+        "temperature" => ctx.settings.temperature = parse_temperature(value)?,
         "max_output_tokens" => {
-            ctx.settings.max_output_tokens = value
-                .parse()
-                .map_err(|_| "max_output_tokens must be an integer".to_owned())?;
+            ctx.settings.max_output_tokens = parse_max_output_tokens(value)?;
         }
         "custom_instructions" => ctx.settings.custom_instructions = value.to_owned(),
         "active_preset_id" => {
-            let exists = ctx
-                .store
-                .presets()
-                .map_err(|error| error.to_string())?
-                .iter()
-                .any(|preset| preset.id == value)
-                || relay_core::find_builtin_preset(value).is_some();
-            if !exists {
+            if !preset_exists(ctx, value)? {
                 return Err(format!("Unknown preset: {value}"));
             }
             ctx.settings.active_preset_id = value.to_owned();
@@ -757,7 +801,16 @@ fn set_setting(ctx: &mut CliContext, key: &str, value: &str) -> Result<(), Strin
     if key == "mcp_servers" {
         ctx.reload_mcp();
     }
-    println!("{key} = {value}");
+    if key == "temperature" {
+        println!("temperature = {:.2}", ctx.settings.temperature);
+    } else {
+        let snapshot = serde_json::to_value(&ctx.settings).map_err(|error| error.to_string())?;
+        let shown = snapshot
+            .get(key)
+            .map(format_setting)
+            .unwrap_or_else(|| format_setting(&Value::String(value.to_owned())));
+        println!("{key} = {shown}");
+    }
     Ok(())
 }
 
@@ -767,6 +820,52 @@ fn parse_bool(value: &str) -> Result<bool, String> {
         "0" | "false" | "no" | "off" => Ok(false),
         _ => Err("value must be true or false".to_owned()),
     }
+}
+
+/// Parse and validate a sampling temperature.
+pub fn parse_temperature(value: &str) -> Result<f64, String> {
+    let parsed: f64 = value
+        .trim()
+        .parse()
+        .map_err(|_| "temperature must be a number between 0 and 2".to_owned())?;
+    if !parsed.is_finite() || !(0.0..=2.0).contains(&parsed) {
+        return Err("temperature must be between 0 and 2".to_owned());
+    }
+    Ok(parsed)
+}
+
+/// Parse and validate an output cap. Zero means the model default.
+pub fn parse_max_output_tokens(value: &str) -> Result<u32, String> {
+    let parsed: u32 = value
+        .trim()
+        .parse()
+        .map_err(|_| "max_output_tokens must be an integer".to_owned())?;
+    if parsed > 1_000_000 {
+        return Err("max_output_tokens must be 1,000,000 or less".to_owned());
+    }
+    Ok(parsed)
+}
+
+/// Human-readable reasoning capability for a model.
+pub fn reasoning_kind_label(kind: ReasoningKind) -> &'static str {
+    match kind {
+        ReasoningKind::None => "not supported",
+        ReasoningKind::Effort => "effort levels",
+        ReasoningKind::Toggle => "on/off switch",
+    }
+}
+
+/// Whether a preset id names a stored or built-in personality.
+pub fn preset_exists(ctx: &CliContext, id: &str) -> Result<bool, String> {
+    if relay_core::find_builtin_preset(id).is_some() {
+        return Ok(true);
+    }
+    Ok(ctx
+        .store
+        .presets()
+        .map_err(|error| error.to_string())?
+        .iter()
+        .any(|preset| preset.id == id))
 }
 
 fn parse_appearance(value: &str) -> Result<relay_core::Appearance, String> {
@@ -1574,6 +1673,10 @@ pub async fn status(ctx: &mut CliContext, json: bool) -> Result<(), String> {
                 "slug": model.slug,
                 "name": model.name,
                 "provider": model.provider.id(),
+                "context_window": agent::context_window(&ctx.settings, &model),
+                "max_output": model.max_output,
+                "reasoning": model.reasoning,
+                "effective_reasoning": agent::effective_reasoning(&ctx.settings, &model),
             },
             "keys": key_sources,
             "ollama": {
@@ -1596,6 +1699,8 @@ pub async fn status(ctx: &mut CliContext, json: bool) -> Result<(), String> {
                 "agent_mode": ctx.settings.agent_mode,
                 "tool_approval": ctx.settings.tool_approval,
                 "reasoning": ctx.settings.reasoning,
+                "temperature": ctx.settings.temperature,
+                "max_output_tokens": ctx.settings.max_output_tokens,
                 "active_preset_id": ctx.settings.active_preset_id,
                 "custom_instructions": !ctx.settings.custom_instructions.trim().is_empty(),
                 "show_thinking": ctx.settings.show_thinking,
@@ -1611,11 +1716,21 @@ pub async fn status(ctx: &mut CliContext, json: bool) -> Result<(), String> {
         count,
         archived,
         stats.messages,
-        output::tokens(stats.tokens)
+        format_tokens_exact(stats.tokens)
     );
     println!();
-    println!("Model:        {} ({})", model.name, model.provider.label());
-    println!("Preset:       {}", ctx.settings.active_preset_id);
+    println!(
+        "Model:        {} ({}) · {} context",
+        model.name,
+        model.provider.label(),
+        relay_core::format_tokens_exact(u64::from(agent::context_window(&ctx.settings, &model)))
+    );
+    println!(
+        "Generation:   temp {:.2} · output {} · preset {}",
+        ctx.settings.temperature,
+        output::token_limit(ctx.settings.max_output_tokens),
+        ctx.settings.active_preset_id
+    );
     println!(
         "Mode:         {} · {} · approval {}",
         if ctx.settings.interaction_mode == "chat" {
@@ -1626,7 +1741,11 @@ pub async fn status(ctx: &mut CliContext, json: bool) -> Result<(), String> {
         ctx.settings.agent_mode.label(),
         ctx.settings.tool_approval.label()
     );
-    println!("Reasoning:    {}", ctx.settings.reasoning.label());
+    println!(
+        "Reasoning:    {} · {}",
+        agent::effective_reasoning(&ctx.settings, &model).label(),
+        reasoning_kind_label(model.reasoning)
+    );
     println!();
     println!("Cloud keys:");
     for (provider, source) in &key_sources {

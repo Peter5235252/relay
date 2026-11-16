@@ -128,9 +128,13 @@ pub fn short_id(id: &str) -> String {
     id.chars().take(8).collect()
 }
 
-/// Format a token count with thousands separators.
-pub fn tokens(count: u64) -> String {
-    relay_core::format_tokens(count)
+/// Format an output cap. Zero means the model's own limit.
+pub fn token_limit(count: u32) -> String {
+    if count == 0 {
+        "model default".to_owned()
+    } else {
+        relay_core::format_tokens_exact(u64::from(count))
+    }
 }
 
 /// Copy text to the system clipboard through a native helper.

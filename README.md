@@ -36,6 +36,29 @@ cargo build -p relay-ui --release
 
 The binary is `relay`.
 
+## Command line
+
+The terminal client shares the same engine, settings store, history, keys, and
+personality presets as the desktop app. Generation controls match the desktop
+Settings panel and persist for later runs.
+
+```sh
+cargo build -p relay-cli --release
+./target/release/relay-cli
+
+relay-cli "explain this repository"
+relay-cli chat --reasoning high --temperature 0.3 --max-output 1024
+relay-cli -p "write a haiku" --preset concise --json
+relay-cli settings set temperature 0.7
+relay-cli models
+```
+
+`--max-output 0` uses the model's default output limit. `relay-cli help chat`
+lists every flag, and `/help` inside the interactive client lists slash
+commands such as `/temperature`, `/max-output`, and `/instructions`.
+
+Linux builds only; macOS and Windows builds are not available.
+
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
