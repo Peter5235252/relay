@@ -517,10 +517,18 @@ async fn stream_assistant(
                     StreamEvent::Text(chunk) => {
                         message.append_text(&chunk);
                         report.text.push_str(&chunk);
+                        if !silent {
+                            print!("{}", chunk);
+                            let _ = std::io::stdout().flush();
+                        }
                     }
                     StreamEvent::Thinking(chunk) => {
                         message.append_thinking(&chunk, model.provider.id());
                         report.thinking.push_str(&chunk);
+                        if !silent && session.show_thinking {
+                            print!("{}", output::dim(&chunk));
+                            let _ = std::io::stdout().flush();
+                        }
                     }
                     StreamEvent::Usage(usage) => {
                         if let Some(existing) = &mut report.usage {
@@ -591,81 +599,69 @@ async fn stream_assistant(
     }
 
     if !silent {
-        let has_text = !report.text.trim().is_empty();
-        let has_thinking = session.show_thinking && !report.thinking.trim().is_empty();
-        if has_text || has_thinking {
-            if has_thinking {
-                eprintln!("{}", output::dim("  reasoning"));
-                for line in report.thinking.trim().lines() {
-                    eprintln!("  {}", output::dim(line));
-                }
-                eprintln!();
-            }
-            if has_text {
-                print!("{}", output::render_markdown(&report.text));
-                if !report.text.ends_with('\n') {
-                    println!();
-                }
-            }
+        // Ensure the streamed text ends on its own line before the footer.
+        if !report.text.is_empty() && !report.text.ends_with('\n') {
+            println!();
+        }
+        eprintln!();
 
-            let estimated = session
-                .messages
-                .iter()
-                .map(estimate_message_tokens)
-                .sum::<u64>()
-                + estimate_message_tokens(&message);
-            let used = report
-                .usage
-                .map(|usage| usage.total_tokens())
-                .unwrap_or(estimated);
-            let window = agent::context_window(&ctx.settings, model);
-            let percent = if window > 0 {
-                used as f64 / f64::from(window) * 100.0
-            } else {
-                0.0
-            };
-            let percent_label = format!("{percent:.2}%");
-            let mut total_in = 0u64;
-            let mut total_out = 0u64;
-            for previous in &session.messages {
-                if let Some(usage) = previous.usage {
-                    total_in += u64::from(usage.input_tokens);
-                    total_out += u64::from(usage.output_tokens);
-                }
-            }
-            if let Some(usage) = report.usage {
+        let estimated = session
+            .messages
+            .iter()
+            .map(estimate_message_tokens)
+            .sum::<u64>()
+            + estimate_message_tokens(&message);
+        let used = report
+            .usage
+            .map(|usage| usage.total_tokens())
+            .unwrap_or(estimated);
+        let window = agent::context_window(&ctx.settings, model);
+        let percent = if window > 0 {
+            used as f64 / f64::from(window) * 100.0
+        } else {
+            0.0
+        };
+        let percent_label = format!("{percent:.2}%");
+        let mut total_in = 0u64;
+        let mut total_out = 0u64;
+        for previous in &session.messages {
+            if let Some(usage) = previous.usage {
                 total_in += u64::from(usage.input_tokens);
                 total_out += u64::from(usage.output_tokens);
             }
-            let session_tokens = if total_in + total_out > 0 {
-                total_in + total_out
-            } else {
-                estimated
-            };
-            let session_label = if total_in + total_out > 0 {
-                format!(
-                    "session {} tokens · {} in / {} out",
-                    format_tokens_exact(session_tokens),
-                    format_tokens_exact(total_in),
-                    format_tokens_exact(total_out)
-                )
-            } else {
-                format!("session {} tokens", format_tokens_exact(session_tokens))
-            };
-            let cost = report
-                .cost
-                .map(|cost| format!(" · ${cost:.4}"))
-                .unwrap_or_default();
-            eprintln!(
-                "{}",
-                output::dim(&format!(
-                    "  {} / {} context ({percent_label}) · {session_label}{cost}",
-                    format_tokens_exact(used),
-                    format_tokens_exact(u64::from(window)),
-                ))
-            );
-            eprintln!();
         }
+        if let Some(usage) = report.usage {
+            total_in += u64::from(usage.input_tokens);
+            total_out += u64::from(usage.output_tokens);
+        }
+        let session_tokens = if total_in + total_out > 0 {
+            total_in + total_out
+        } else {
+            estimated
+        };
+        let session_label = if total_in + total_out > 0 {
+            format!(
+                "session {} tokens · {} in / {} out",
+                format_tokens_exact(session_tokens),
+                format_tokens_exact(total_in),
+                format_tokens_exact(total_out)
+            )
+        } else {
+            format!("session {} tokens", format_tokens_exact(session_tokens))
+        };
+        let cost = report
+            .cost
+            .map(|cost| format!(" · ${cost:.4}"))
+            .unwrap_or_default();
+        eprintln!(
+            "{}",
+            output::dim(&format!(
+                "  {} / {} context ({percent_label}) · {session_label}{cost}",
+                format_tokens_exact(used),
+                format_tokens_exact(u64::from(window)),
+            ))
+        );
+        eprintln!();
     }
 
     // The caller reports `report.error` once, so errors are not printed twice
