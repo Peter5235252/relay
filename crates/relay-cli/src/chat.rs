@@ -506,6 +506,27 @@ async fn stream_assistant(
         cancelled: false,
     };
 
+    let spinner_stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    if !silent {
+        let stop = spinner_stop.clone();
+        tokio::spawn(async move {
+            let frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+            let mut index = 0usize;
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                eprint!(
+                    "\r\x1b[2K{} {}",
+                    frames[index % frames.len()],
+                    output::dim("Thinking...")
+                );
+                let _ = std::io::stderr().flush();
+                index += 1;
+                tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+            }
+            eprint!("\r\x1b[2K");
+            let _ = std::io::stderr().flush();
+        });
+    }
+
     loop {
         tokio::select! {
             event = events.recv() => {
@@ -515,6 +536,7 @@ async fn stream_assistant(
                 };
                 match event {
                     StreamEvent::Text(chunk) => {
+                        spinner_stop.store(true, std::sync::atomic::Ordering::Relaxed);
                         message.append_text(&chunk);
                         report.text.push_str(&chunk);
                         if !silent {
@@ -523,6 +545,7 @@ async fn stream_assistant(
                         }
                     }
                     StreamEvent::Thinking(chunk) => {
+                        spinner_stop.store(true, std::sync::atomic::Ordering::Relaxed);
                         message.append_thinking(&chunk, model.provider.id());
                         report.thinking.push_str(&chunk);
                         if !silent && session.show_thinking {
@@ -541,16 +564,13 @@ async fn stream_assistant(
                     StreamEvent::ToolCall(call) => {
                         if !silent {
                             eprintln!(
-                                "\n  {} {}",
-                                output::cyan("↳"),
-                                format!(
-                                    "{} {}",
-                                    output::bold(&call.name),
-                                    output::dim(&output::truncate(
-                                        &serde_json::to_string(&call.arguments).unwrap_or_default(),
-                                        400
-                                    ))
-                                )
+                                "\n  {} {} {}",
+                                output::cyan("⚡"),
+                                output::bold(&call.name),
+                                output::dim(&output::truncate(
+                                    &serde_json::to_string(&call.arguments).unwrap_or_default(),
+                                    200
+                                ))
                             );
                         }
                         message.blocks.push(ContentBlock::ToolUse {
@@ -563,9 +583,9 @@ async fn stream_assistant(
                         if !silent {
                             eprintln!(
                                 "  {} {}: {}",
-                                output::dim("←"),
+                                output::green("✓"),
                                 output::cyan(&name),
-                                output::dim(&output::truncate(&output, 400))
+                                output::dim(&output::truncate(&output, 300))
                             );
                         }
                         message.blocks.push(ContentBlock::ToolResult {
@@ -716,7 +736,14 @@ async fn run_slash(
         Some((name, rest)) => (name.to_ascii_lowercase(), rest.trim()),
         None => (without_slash.to_ascii_lowercase(), ""),
     };
-    match name.as_str() {
+    let name = match name.as_str() {
+        "t" => "thinking",
+        "n" => "new",
+        "q" => "quit",
+        "h" | "?" => "help",
+        other => other,
+    };
+    match name {
         "help" | "?" => print!("{}", crate::args::chat_help()),
         "clear" | "cls" => {
             output::clear_screen();
