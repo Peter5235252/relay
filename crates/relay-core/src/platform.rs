@@ -233,6 +233,14 @@ pub fn shell_command(shell: &str, command: &str) -> Command {
             cmd.arg(command);
         }
     }
+    // The desktop app is a GUI process on Windows. Without this flag every
+    // model tool call would flash a console window while it runs.
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt as _;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
     cmd
 }
 
