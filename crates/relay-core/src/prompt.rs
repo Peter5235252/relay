@@ -1,6 +1,6 @@
 //! Prompt assembly, history fitting, and Markdown export.
 
-use crate::{ChatMessage, Role};
+use crate::{ChatMessage, ImageAttachment, Role};
 
 /// A plain text turn ready for a provider request.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -9,6 +9,8 @@ pub struct RequestMessage {
     pub role: Role,
     /// Visible text. Reasoning blocks are never included.
     pub text: String,
+    /// Attached images. Only user turns carry these.
+    pub images: Vec<ImageAttachment>,
     /// Tool calls emitted by an assistant turn.
     pub tool_calls: Vec<crate::ToolCall>,
     /// Tool-call id this message is responding to.
@@ -27,12 +29,14 @@ pub fn request_history(messages: &[ChatMessage]) -> Vec<RequestMessage> {
             continue;
         }
         let text = message.text();
-        if text.trim().is_empty() {
+        let images = message.images();
+        if text.trim().is_empty() && images.is_empty() {
             continue;
         }
         turns.push(RequestMessage {
             role: message.role,
             text,
+            images,
             tool_calls: Vec::new(),
             tool_call_id: None,
         });
@@ -75,12 +79,22 @@ pub fn fit_history(
     let total = |turns: &[RequestMessage]| -> u32 {
         turns
             .iter()
-            .map(|turn| estimate_tokens(&turn.text) + 4)
+            .map(|turn| estimate_tokens(&turn.text) + turn.images.len() as u32 * 1024 + 4)
             .sum()
     };
 
-    while total(&history) > budget && history.len() > 1 {
-        history.remove(0);
+    // Drop oldest turns in one pass instead of repeatedly removing the
+    // front of the vector (which is O(n) per removal).
+    let mut total_tokens = total(&history);
+    let mut drop = 0usize;
+    while drop + 1 < history.len() && total_tokens > budget {
+        let turn = &history[drop];
+        total_tokens = total_tokens
+            .saturating_sub(estimate_tokens(&turn.text) + turn.images.len() as u32 * 1024 + 4);
+        drop += 1;
+    }
+    if drop > 0 {
+        history.drain(0..drop);
     }
 
     // Some providers require the first turn to be from the user.
@@ -185,24 +199,28 @@ mod tests {
             RequestMessage {
                 role: Role::Assistant,
                 text: "old assistant".to_owned(),
+                images: Vec::new(),
                 tool_calls: Vec::new(),
                 tool_call_id: None,
             },
             RequestMessage {
                 role: Role::User,
                 text: "old user".repeat(50),
+                images: Vec::new(),
                 tool_calls: Vec::new(),
                 tool_call_id: None,
             },
             RequestMessage {
                 role: Role::Assistant,
                 text: "new assistant".repeat(50),
+                images: Vec::new(),
                 tool_calls: Vec::new(),
                 tool_call_id: None,
             },
             RequestMessage {
                 role: Role::User,
                 text: "newest question".to_owned(),
+                images: Vec::new(),
                 tool_calls: Vec::new(),
                 tool_call_id: None,
             },
@@ -220,6 +238,7 @@ mod tests {
         let turns = vec![RequestMessage {
             role: Role::User,
             text: "x".repeat(100_000),
+            images: Vec::new(),
             tool_calls: Vec::new(),
             tool_call_id: None,
         }];

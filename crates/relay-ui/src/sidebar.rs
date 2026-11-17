@@ -232,7 +232,7 @@ impl RelayApp {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let id = summary.id.clone();
-        let delete_id = summary.id.clone();
+        let _delete_id = summary.id.clone();
         let group = format!("conversation-{}", summary.id);
         let model = find_model(&summary.model_slug)
             .map(|spec| spec.name.to_owned())
@@ -310,7 +310,7 @@ impl RelayApp {
                                         .ghost()
                                         .xsmall()
                                         .icon(Icon::new(IconName::Check))
-                                        .on_click(cx.listener(move |this, _, window, cx| {
+                                        .on_click(cx.listener(move |this, _, _window, cx| {
                                             let new_title =
                                                 input.read(cx).value().trim().to_owned();
                                             if !new_title.is_empty() {

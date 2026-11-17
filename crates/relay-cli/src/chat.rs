@@ -19,7 +19,7 @@ use crate::commands::{self, CliContext};
 use crate::output;
 
 /// Options accepted by `chat`, `ask`, and bare prompts.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ChatOptions {
     /// Model slug override.
     pub model: Option<String>,
@@ -49,27 +49,8 @@ pub struct ChatOptions {
     pub json: bool,
     /// Reasoning display override.
     pub show_thinking: Option<bool>,
-}
-
-impl Default for ChatOptions {
-    fn default() -> Self {
-        Self {
-            model: None,
-            session: None,
-            new: false,
-            reasoning: None,
-            temperature: None,
-            max_output_tokens: None,
-            preset: None,
-            instructions: None,
-            interaction_mode: None,
-            agent_mode: None,
-            approval: None,
-            yes: false,
-            json: false,
-            show_thinking: None,
-        }
-    }
+    /// Image files to attach to the first prompt.
+    pub images: Vec<std::path::PathBuf>,
 }
 
 /// The result of one assistant turn.
@@ -95,6 +76,7 @@ struct ChatSession {
     messages: Vec<ChatMessage>,
     yes: bool,
     show_thinking: bool,
+    pending_images: Vec<relay_core::ImageAttachment>,
 }
 
 enum Flow {
@@ -282,6 +264,13 @@ fn open_session(
         .model
         .clone()
         .unwrap_or_else(|| ctx.settings.default_model.clone());
+    let mut pending_images = Vec::new();
+    for path in &options.images {
+        match read_image_file(path) {
+            Ok(image) => pending_images.push(image),
+            Err(error) => eprintln!("image: {path:?}: {error}"),
+        }
+    }
     Ok(ChatSession {
         conversation_id: None,
         title: "New chat".to_owned(),
@@ -289,6 +278,7 @@ fn open_session(
         messages: Vec::new(),
         yes: options.yes,
         show_thinking: ctx.settings.show_thinking,
+        pending_images,
     })
 }
 
@@ -317,6 +307,7 @@ fn session_from_summary(
         messages,
         yes: false,
         show_thinking: ctx.settings.show_thinking,
+        pending_images: Vec::new(),
     })
 }
 
@@ -432,7 +423,15 @@ async fn send_prompt(
     let Some(id) = session.conversation_id.clone() else {
         return Err("Could not create a conversation.".to_owned());
     };
-    let user = ChatMessage::user(prompt);
+    let pending_images = std::mem::take(&mut session.pending_images);
+    let mut blocks = Vec::new();
+    if !prompt.trim().is_empty() {
+        blocks.push(relay_core::ContentBlock::text(prompt));
+    }
+    for image in pending_images {
+        blocks.push(relay_core::ContentBlock::image(image));
+    }
+    let user = relay_core::ChatMessage::user_blocks(blocks);
     let outcome = ctx
         .store
         .append_message(&id, &user)
@@ -727,6 +726,18 @@ async fn run_slash(
             output::clear_screen();
             print_banner(ctx, session);
         }
+        "image" | "attach" => {
+            if rest.is_empty() {
+                return Err("Usage: /image <path>".to_owned());
+            }
+            match read_image_file(std::path::Path::new(rest)) {
+                Ok(image) => {
+                    session.pending_images.push(image);
+                    println!("Attached image.");
+                }
+                Err(error) => return Err(error),
+            }
+        }
         "quit" | "exit" | "q" => return Ok(Flow::Quit),
         "new" => {
             *session = ChatSession {
@@ -736,6 +747,7 @@ async fn run_slash(
                 messages: Vec::new(),
                 yes: session.yes,
                 show_thinking: session.show_thinking,
+                pending_images: Vec::new(),
             };
             println!("New conversation · {}", session.model_slug);
         }
@@ -1081,6 +1093,7 @@ async fn run_slash(
                 messages: Vec::new(),
                 yes: session.yes,
                 show_thinking: session.show_thinking,
+                pending_images: Vec::new(),
             };
         }
         "delete" => {
@@ -1101,6 +1114,7 @@ async fn run_slash(
                 messages: Vec::new(),
                 yes: session.yes,
                 show_thinking: session.show_thinking,
+                pending_images: Vec::new(),
             };
         }
         "export" => {
@@ -1413,6 +1427,13 @@ fn render_messages_from(
                 }
             }
         }
+        if !message.images().is_empty() {
+            out.push_str(&format!(
+                "  [{} image attachment{}]\n",
+                message.images().len(),
+                if message.images().len() == 1 { "" } else { "s" }
+            ));
+        }
 
         for block in &message.blocks {
             match block {
@@ -1708,4 +1729,50 @@ fn spawn_auto_summary(ctx: &CliContext) {
     ctx.runtime.spawn(async move {
         let _ = memory::maybe_summarize(&store, Some(&endpoint), &model, false).await;
     });
+}
+
+fn read_image_file(path: &std::path::Path) -> Result<relay_core::ImageAttachment, String> {
+    let bytes = std::fs::read(path).map_err(|error| error.to_string())?;
+    if bytes.is_empty() {
+        return Err("empty file".to_owned());
+    }
+    if bytes.len() > 10 * 1024 * 1024 {
+        return Err("image too large (max 10 MB)".to_owned());
+    }
+    let media_type =
+        detect_image_media_type(&bytes, path).ok_or_else(|| "unsupported image type".to_owned())?;
+    let name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .map(str::to_owned);
+    Ok(relay_core::ImageAttachment::from_bytes(
+        media_type, &bytes, name,
+    ))
+}
+
+fn detect_image_media_type(bytes: &[u8], path: &std::path::Path) -> Option<String> {
+    if bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
+        return Some("image/png".to_owned());
+    }
+    if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        return Some("image/jpeg".to_owned());
+    }
+    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        return Some("image/gif".to_owned());
+    }
+    if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        return Some("image/webp".to_owned());
+    }
+    match path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("png") => Some("image/png".to_owned()),
+        Some("jpg") | Some("jpeg") => Some("image/jpeg".to_owned()),
+        Some("gif") => Some("image/gif".to_owned()),
+        Some("webp") => Some("image/webp".to_owned()),
+        _ => None,
+    }
 }

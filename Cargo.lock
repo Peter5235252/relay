@@ -5571,6 +5571,7 @@ dependencies = [
 name = "relay-core"
 version = "0.1.8"
 dependencies = [
+ "base64 0.22.1",
  "chrono",
  "serde",
  "serde_json",
@@ -5644,6 +5645,7 @@ dependencies = [
 name = "relay-ui"
 version = "0.1.8"
 dependencies = [
+ "base64 0.22.1",
  "chrono",
  "flate2",
  "futures-util",

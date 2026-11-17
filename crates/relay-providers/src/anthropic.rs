@@ -102,23 +102,50 @@ fn messages(request: &ChatRequest) -> Vec<Value> {
                 }));
             }
             _ => {
-                if turn.text.trim().is_empty() {
+                if turn.text.trim().is_empty() && turn.images.is_empty() {
                     continue;
                 }
                 // Merge consecutive user text into one turn content array.
                 if let Some(last) = out.last_mut()
                     && last.get("role").and_then(Value::as_str) == Some("user")
                     && last.get("content").map(Value::is_array).unwrap_or(false)
+                    && let Some(arr) = last.get_mut("content").and_then(Value::as_array_mut)
                 {
-                    if let Some(arr) = last.get_mut("content").and_then(Value::as_array_mut) {
-                        // only merge if last content is text-only simple; push text block
-                        arr.push(json!({ "type": "text", "text": turn.text }));
-                        continue;
+                    for image in &turn.images {
+                        arr.push(json!({
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": image.media_type,
+                                "data": image.data,
+                            }
+                        }));
                     }
+                    if !turn.text.trim().is_empty() {
+                        arr.push(json!({ "type": "text", "text": turn.text }));
+                    }
+                    continue;
+                }
+                let mut content: Vec<Value> = Vec::new();
+                for image in &turn.images {
+                    content.push(json!({
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": image.media_type,
+                            "data": image.data,
+                        }
+                    }));
+                }
+                if !turn.text.trim().is_empty() {
+                    content.push(json!({ "type": "text", "text": turn.text }));
+                }
+                if content.is_empty() {
+                    continue;
                 }
                 out.push(json!({
                     "role": "user",
-                    "content": [{ "type": "text", "text": turn.text }]
+                    "content": content
                 }));
             }
         }
@@ -226,10 +253,10 @@ pub(crate) async fn stream(
                                 tool_name =
                                     block.get("name").and_then(Value::as_str).map(str::to_owned);
                                 tool_args.clear();
-                                if let Some(input) = block.get("input") {
-                                    if !input.is_null() {
-                                        tool_args = input.to_string();
-                                    }
+                                if let Some(input) = block.get("input")
+                                    && !input.is_null()
+                                {
+                                    tool_args = input.to_string();
                                 }
                             }
                             _ => {}
@@ -356,24 +383,28 @@ mod tests {
                 RequestMessage {
                     role: Role::Assistant,
                     text: "orphan".to_owned(),
+                    images: Vec::new(),
                     tool_calls: Vec::new(),
                     tool_call_id: None,
                 },
                 RequestMessage {
                     role: Role::User,
                     text: "First".to_owned(),
+                    images: Vec::new(),
                     tool_calls: Vec::new(),
                     tool_call_id: None,
                 },
                 RequestMessage {
                     role: Role::User,
                     text: "Second".to_owned(),
+                    images: Vec::new(),
                     tool_calls: Vec::new(),
                     tool_call_id: None,
                 },
                 RequestMessage {
                     role: Role::Assistant,
                     text: "Answer".to_owned(),
+                    images: Vec::new(),
                     tool_calls: Vec::new(),
                     tool_call_id: None,
                 },

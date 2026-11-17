@@ -9,7 +9,7 @@ use gpui_kit::component::{
     select::{SearchableVec, SelectGroup, SelectState},
 };
 use gpui_kit::{App, AppContext as _, Entity, SharedString, Window};
-use relay_core::{AppSettings, ModelSelection, Provider, find_model, models};
+use relay_core::{AppSettings, ModelSelection, Provider, models};
 
 /// One selectable model.
 #[derive(Clone)]

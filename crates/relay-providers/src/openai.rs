@@ -25,6 +25,7 @@ pub(crate) fn body(request: &ChatRequest) -> Value {
         if message.text.trim().is_empty()
             && message.tool_calls.is_empty()
             && message.tool_call_id.is_none()
+            && message.images.is_empty()
         {
             continue;
         }
@@ -52,11 +53,27 @@ pub(crate) fn body(request: &ChatRequest) -> Value {
                 }
             }
             _ => {
-                if !message.text.trim().is_empty() {
-                    let role = match message.role {
-                        relay_core::Role::Assistant => "assistant",
-                        _ => "user",
-                    };
+                let role = match message.role {
+                    relay_core::Role::Assistant => "assistant",
+                    _ => "user",
+                };
+                if !message.images.is_empty() {
+                    let mut content: Vec<Value> = Vec::new();
+                    if !message.text.trim().is_empty() {
+                        content.push(json!({ "type": "input_text", "text": message.text }));
+                    }
+                    for image in &message.images {
+                        content.push(json!({
+                            "type": "input_image",
+                            "image_url": format!("data:{};base64,{}", image.media_type, image.data),
+                        }));
+                    }
+                    if content.is_empty() {
+                        // nothing to send
+                    } else {
+                        input.push(json!({ "role": role, "content": content }));
+                    }
+                } else if !message.text.trim().is_empty() {
                     input.push(json!({ "role": role, "content": message.text }));
                 }
             }
@@ -207,18 +224,17 @@ pub(crate) async fn stream(
                     let args = serde_json::from_str(&args_str).unwrap_or(Value::Object(Map::new()));
                     if let (Some(id), Some(name)) =
                         (current_call_id.take(), current_call_name.take())
+                        && !name.trim().is_empty()
                     {
-                        if !name.trim().is_empty() {
-                            emit(
-                                events,
-                                StreamEvent::ToolCall(relay_core::ToolCall {
-                                    id,
-                                    name,
-                                    arguments: args,
-                                }),
-                            )
-                            .await?;
-                        }
+                        emit(
+                            events,
+                            StreamEvent::ToolCall(relay_core::ToolCall {
+                                id,
+                                name,
+                                arguments: args,
+                            }),
+                        )
+                        .await?;
                     }
                     current_args.clear();
                 }
@@ -291,18 +307,21 @@ mod tests {
                 RequestMessage {
                     role: Role::User,
                     text: "Hello".to_owned(),
+                    images: Vec::new(),
                     tool_calls: Vec::new(),
                     tool_call_id: None,
                 },
                 RequestMessage {
                     role: Role::Assistant,
                     text: "Hi".to_owned(),
+                    images: Vec::new(),
                     tool_calls: Vec::new(),
                     tool_call_id: None,
                 },
                 RequestMessage {
                     role: Role::User,
                     text: "Continue".to_owned(),
+                    images: Vec::new(),
                     tool_calls: Vec::new(),
                     tool_call_id: None,
                 },

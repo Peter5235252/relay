@@ -26,6 +26,7 @@ pub(crate) fn body(request: &ChatRequest) -> Value {
         if message.text.trim().is_empty()
             && message.tool_calls.is_empty()
             && message.tool_call_id.is_none()
+            && message.images.is_empty()
         {
             continue;
         }
@@ -53,11 +54,27 @@ pub(crate) fn body(request: &ChatRequest) -> Value {
                 }));
             }
             _ => {
-                if !message.text.trim().is_empty() {
-                    let role = match message.role {
-                        relay_core::Role::Assistant => "assistant",
-                        _ => "user",
-                    };
+                let role = match message.role {
+                    relay_core::Role::Assistant => "assistant",
+                    _ => "user",
+                };
+                if !message.images.is_empty() {
+                    let mut content: Vec<Value> = Vec::new();
+                    if !message.text.trim().is_empty() {
+                        content.push(json!({ "type": "text", "text": message.text }));
+                    }
+                    for image in &message.images {
+                        content.push(json!({
+                            "type": "image_url",
+                            "image_url": {
+                                "url": format!("data:{};base64,{}", image.media_type, image.data)
+                            }
+                        }));
+                    }
+                    if !content.is_empty() {
+                        messages.push(json!({ "role": role, "content": content }));
+                    }
+                } else if !message.text.trim().is_empty() {
                     messages.push(json!({ "role": role, "content": message.text }));
                 }
             }
@@ -167,16 +184,15 @@ pub(crate) async fn stream(
                             let entry = tool_states
                                 .entry(idx)
                                 .or_insert_with(|| (String::new(), String::new(), String::new()));
-                            if let Some(id) = tc.get("id").and_then(Value::as_str) {
-                                if !id.is_empty() {
-                                    entry.0 = id.to_owned();
-                                }
+                            if let Some(id) = tc.get("id").and_then(Value::as_str)
+                                && !id.is_empty()
+                            {
+                                entry.0 = id.to_owned();
                             }
                             if let Some(name) = tc.pointer("/function/name").and_then(Value::as_str)
+                                && !name.is_empty()
                             {
-                                if !name.is_empty() {
-                                    entry.1.push_str(name);
-                                }
+                                entry.1.push_str(name);
                             }
                             if let Some(args) =
                                 tc.pointer("/function/arguments").and_then(Value::as_str)
@@ -298,18 +314,21 @@ mod tests {
                 RequestMessage {
                     role: Role::User,
                     text: "Hello".to_owned(),
+                    images: Vec::new(),
                     tool_calls: Vec::new(),
                     tool_call_id: None,
                 },
                 RequestMessage {
                     role: Role::Assistant,
                     text: "Hi".to_owned(),
+                    images: Vec::new(),
                     tool_calls: Vec::new(),
                     tool_call_id: None,
                 },
                 RequestMessage {
                     role: Role::User,
                     text: "Continue".to_owned(),
+                    images: Vec::new(),
                     tool_calls: Vec::new(),
                     tool_call_id: None,
                 },

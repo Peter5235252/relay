@@ -443,67 +443,70 @@ fn format_inline(text: &str) -> String {
     let mut i = 0;
     while i < chars.len() {
         // Inline code.
-        if chars[i] == '`' {
-            if let Some(end) = find_char(&chars, '`', i + 1) {
-                let code: String = chars[i + 1..end].iter().collect();
-                out.push_str(&cyan(&code));
-                i = end + 1;
-                continue;
-            }
+        if chars[i] == '`'
+            && let Some(end) = find_char(&chars, '`', i + 1)
+        {
+            let code: String = chars[i + 1..end].iter().collect();
+            out.push_str(&cyan(&code));
+            i = end + 1;
+            continue;
         }
         // Bold with **.
-        if i + 1 < chars.len() && chars[i] == '*' && chars[i + 1] == '*' {
-            if let Some(end) = find_str(&chars, &['*', '*'], i + 2) {
-                let inner: String = chars[i + 2..end].iter().collect();
-                out.push_str(&bold(&format_inline(&inner)));
-                i = end + 2;
-                continue;
-            }
+        if i + 1 < chars.len()
+            && chars[i] == '*'
+            && chars[i + 1] == '*'
+            && let Some(end) = find_str(&chars, &['*', '*'], i + 2)
+        {
+            let inner: String = chars[i + 2..end].iter().collect();
+            out.push_str(&bold(&format_inline(&inner)));
+            i = end + 2;
+            continue;
         }
         // Bold with __.
-        if i + 1 < chars.len() && chars[i] == '_' && chars[i + 1] == '_' {
-            if let Some(end) = find_str(&chars, &['_', '_'], i + 2) {
-                let inner: String = chars[i + 2..end].iter().collect();
-                out.push_str(&bold(&format_inline(&inner)));
-                i = end + 2;
-                continue;
-            }
+        if i + 1 < chars.len()
+            && chars[i] == '_'
+            && chars[i + 1] == '_'
+            && let Some(end) = find_str(&chars, &['_', '_'], i + 2)
+        {
+            let inner: String = chars[i + 2..end].iter().collect();
+            out.push_str(&bold(&format_inline(&inner)));
+            i = end + 2;
+            continue;
         }
         // Italic with *.
-        if chars[i] == '*' {
-            if let Some(end) = find_char(&chars, '*', i + 1) {
-                let inner: String = chars[i + 1..end].iter().collect();
-                out.push_str(&italic(&format_inline(&inner)));
-                i = end + 1;
-                continue;
-            }
+        if chars[i] == '*'
+            && let Some(end) = find_char(&chars, '*', i + 1)
+        {
+            let inner: String = chars[i + 1..end].iter().collect();
+            out.push_str(&italic(&format_inline(&inner)));
+            i = end + 1;
+            continue;
         }
         // Italic with _.
-        if chars[i] == '_' {
-            if let Some(end) = find_char(&chars, '_', i + 1) {
-                let inner: String = chars[i + 1..end].iter().collect();
-                out.push_str(&italic(&format_inline(&inner)));
-                i = end + 1;
-                continue;
-            }
+        if chars[i] == '_'
+            && let Some(end) = find_char(&chars, '_', i + 1)
+        {
+            let inner: String = chars[i + 1..end].iter().collect();
+            out.push_str(&italic(&format_inline(&inner)));
+            i = end + 1;
+            continue;
         }
         // Link [text](url).
-        if chars[i] == '[' {
-            if let Some(close) = find_char(&chars, ']', i + 1) {
-                if close + 1 < chars.len() && chars[close + 1] == '(' {
-                    if let Some(end) = find_char(&chars, ')', close + 2) {
-                        let text: String = chars[i + 1..close].iter().collect();
-                        let url: String = chars[close + 2..end].iter().collect();
-                        out.push_str(&format!(
-                            "{} {}",
-                            format_inline(&text),
-                            dim(&format!("({url})"))
-                        ));
-                        i = end + 1;
-                        continue;
-                    }
-                }
-            }
+        if chars[i] == '['
+            && let Some(close) = find_char(&chars, ']', i + 1)
+            && close + 1 < chars.len()
+            && chars[close + 1] == '('
+            && let Some(end) = find_char(&chars, ')', close + 2)
+        {
+            let text: String = chars[i + 1..close].iter().collect();
+            let url: String = chars[close + 2..end].iter().collect();
+            out.push_str(&format!(
+                "{} {}",
+                format_inline(&text),
+                dim(&format!("({url})"))
+            ));
+            i = end + 1;
+            continue;
         }
         out.push(chars[i]);
         i += 1;

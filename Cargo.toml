@@ -28,6 +28,7 @@ relay-engine = { path = "crates/relay-engine" }
 # snapshots breaks the pre-1.0 GPUI API.
 gpui-kit = "=0.9.1"
 
+base64 = "0.22"
 bytes = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
 directories = "6"

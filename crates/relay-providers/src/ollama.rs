@@ -22,6 +22,7 @@ pub(crate) fn body(request: &ChatRequest) -> Value {
         if message.text.trim().is_empty()
             && message.tool_calls.is_empty()
             && message.tool_call_id.is_none()
+            && message.images.is_empty()
         {
             continue;
         }
@@ -32,6 +33,15 @@ pub(crate) fn body(request: &ChatRequest) -> Value {
             relay_core::Role::User => "user",
         };
         let mut msg = json!({ "role": role, "content": message.text });
+        if !message.images.is_empty() {
+            msg["images"] = json!(
+                message
+                    .images
+                    .iter()
+                    .map(|image| image.data.clone())
+                    .collect::<Vec<_>>()
+            );
+        }
         if !message.tool_calls.is_empty() {
             let tcs: Vec<Value> = message
                 .tool_calls
@@ -308,18 +318,21 @@ mod tests {
                 RequestMessage {
                     role: Role::User,
                     text: "Hello".to_owned(),
+                    images: Vec::new(),
                     tool_calls: Vec::new(),
                     tool_call_id: None,
                 },
                 RequestMessage {
                     role: Role::Assistant,
                     text: "Hi".to_owned(),
+                    images: Vec::new(),
                     tool_calls: Vec::new(),
                     tool_call_id: None,
                 },
                 RequestMessage {
                     role: Role::User,
                     text: "Continue".to_owned(),
+                    images: Vec::new(),
                     tool_calls: Vec::new(),
                     tool_call_id: None,
                 },

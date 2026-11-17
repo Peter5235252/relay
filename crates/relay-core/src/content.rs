@@ -53,6 +53,44 @@ impl Role {
     }
 }
 
+/// An image attached to a user turn.
+///
+/// `data` is standard (RFC 4648) base64 without a `data:` prefix; the MIME
+/// type travels alongside so providers can rebuild their native payload.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImageAttachment {
+    /// MIME type, e.g. `image/png`.
+    pub media_type: String,
+    /// Base64-encoded image bytes.
+    ///
+    /// Stored behind an `Arc` so cloning a message (which happens on every
+    /// render and request) does not copy the (potentially large) payload.
+    pub data: std::sync::Arc<String>,
+    /// Original file name, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Pixel width, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    /// Pixel height, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
+}
+
+impl ImageAttachment {
+    /// Create an attachment from raw bytes and a MIME type.
+    pub fn from_bytes(media_type: impl Into<String>, bytes: &[u8], name: Option<String>) -> Self {
+        use base64::Engine as _;
+        Self {
+            media_type: media_type.into(),
+            data: std::sync::Arc::new(base64::engine::general_purpose::STANDARD.encode(bytes)),
+            name,
+            width: None,
+            height: None,
+        }
+    }
+}
+
 /// A provider-neutral content block.
 ///
 /// Unknown block types are preserved as [`ContentBlock::Unknown`] so a future
@@ -65,6 +103,9 @@ pub enum ContentBlock {
         /// Markdown or plain text.
         text: String,
     },
+    /// An attached image. Only user turns carry these; they are never
+    /// synthesized by the model.
+    Image(ImageAttachment),
     /// A reasoning summary. Never sent back to a provider.
     Thinking {
         /// Human-readable reasoning summary, when the provider exposes one.
@@ -130,6 +171,21 @@ impl ContentBlock {
             Self::Thinking { text, .. } => Some(text),
             _ => None,
         }
+    }
+
+    /// Image attachment, if this is an image block.
+    pub fn as_image(&self) -> Option<&ImageAttachment> {
+        match self {
+            Self::Image(image) => Some(image),
+            _ => None,
+        }
+    }
+}
+
+impl ContentBlock {
+    /// Create an image block.
+    pub fn image(image: ImageAttachment) -> Self {
+        Self::Image(image)
     }
 }
 
@@ -217,7 +273,21 @@ impl ChatMessage {
     /// Whether the message has no visible content. Thinking-only turns are not
     /// useful to replay, so request assembly skips them.
     pub fn is_empty(&self) -> bool {
-        self.text().trim().is_empty()
+        self.text().trim().is_empty() && self.images().is_empty()
+    }
+
+    /// Attached images on this message.
+    pub fn images(&self) -> Vec<ImageAttachment> {
+        self.blocks
+            .iter()
+            .filter_map(ContentBlock::as_image)
+            .cloned()
+            .collect()
+    }
+
+    /// Build a user message from arbitrary content blocks.
+    pub fn user_blocks(blocks: Vec<ContentBlock>) -> Self {
+        Self::new(Role::User, blocks)
     }
 
     /// Append streamed text to the first text block, creating one if needed.
@@ -250,6 +320,7 @@ impl ChatMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::request_history;
 
     #[test]
     fn text_and_thinking_helpers_extract_only_their_blocks() {
@@ -286,5 +357,25 @@ mod tests {
         let json = serde_json::to_string(&message).expect("serialize");
         let parsed: ChatMessage = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(parsed, message);
+    }
+
+    #[test]
+    fn image_blocks_round_trip_and_survive_request_history() {
+        let image = ImageAttachment {
+            media_type: "image/png".to_owned(),
+            data: std::sync::Arc::new("AAAA".to_owned()),
+            name: Some("x.png".to_owned()),
+            width: None,
+            height: None,
+        };
+        let message = ChatMessage::user_blocks(vec![ContentBlock::image(image.clone())]);
+        assert!(!message.is_empty());
+        assert_eq!(message.images(), vec![image]);
+        let json = serde_json::to_string(&message).expect("serialize");
+        let parsed: ChatMessage = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(parsed.images().len(), 1);
+        let history = request_history(&[message]);
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].images.len(), 1);
     }
 }

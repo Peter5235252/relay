@@ -77,12 +77,14 @@ pub(crate) fn body(request: &ChatRequest) -> Value {
     let input: Vec<Value> = request
         .messages
         .iter()
-        .filter(|message| !message.text.trim().is_empty() || !message.tool_calls.is_empty())
+        .filter(|message| {
+            !message.text.trim().is_empty()
+                || !message.tool_calls.is_empty()
+                || !message.images.is_empty()
+        })
         .map(|message| {
             // For assistant messages with tool calls, include function_call step
             if message.role == relay_core::Role::Assistant && !message.tool_calls.is_empty() {
-                // Represent as model_output with tool calls handled separately; Gemini needs function_call steps.
-                // We'll emit a single model_output step for text; tool calls are sent by the model, not us.
                 let step_type = "model_output";
                 json!({
                     "type": step_type,
@@ -94,9 +96,23 @@ pub(crate) fn body(request: &ChatRequest) -> Value {
                     relay_core::Role::Tool => "tool",
                     _ => "user_input",
                 };
+                let mut content: Vec<Value> = Vec::new();
+                if !message.text.trim().is_empty() {
+                    content.push(json!({ "type": "text", "text": message.text }));
+                }
+                for image in &message.images {
+                    content.push(json!({
+                        "type": "image",
+                        "mime_type": image.media_type,
+                        "data": image.data,
+                    }));
+                }
+                if content.is_empty() {
+                    content.push(json!({ "type": "text", "text": "" }));
+                }
                 json!({
                     "type": step_type,
-                    "content": [{ "type": "text", "text": message.text }],
+                    "content": content,
                 })
             }
         })
@@ -253,19 +269,18 @@ pub(crate) async fn stream(
                     }
                 }
                 "step.start" => {
-                    if let Some(step) = value.get("step") {
-                        if step.get("type").and_then(Value::as_str) == Some("function_call") {
-                            func_call_id =
-                                step.get("id").and_then(Value::as_str).map(str::to_owned);
-                            func_call_name =
-                                step.get("name").and_then(Value::as_str).map(str::to_owned);
-                            func_args.clear();
-                            if let Some(args) = step.get("arguments") {
-                                if let Some(s) = args.as_str() {
-                                    func_args.push_str(s);
-                                } else if !args.is_null() {
-                                    func_args = args.to_string();
-                                }
+                    if let Some(step) = value.get("step")
+                        && step.get("type").and_then(Value::as_str) == Some("function_call")
+                    {
+                        func_call_id = step.get("id").and_then(Value::as_str).map(str::to_owned);
+                        func_call_name =
+                            step.get("name").and_then(Value::as_str).map(str::to_owned);
+                        func_args.clear();
+                        if let Some(args) = step.get("arguments") {
+                            if let Some(s) = args.as_str() {
+                                func_args.push_str(s);
+                            } else if !args.is_null() {
+                                func_args = args.to_string();
                             }
                         }
                     }
@@ -396,18 +411,21 @@ mod tests {
                 RequestMessage {
                     role: Role::User,
                     text: "Hello".to_owned(),
+                    images: Vec::new(),
                     tool_calls: Vec::new(),
                     tool_call_id: None,
                 },
                 RequestMessage {
                     role: Role::Assistant,
                     text: "Hi".to_owned(),
+                    images: Vec::new(),
                     tool_calls: Vec::new(),
                     tool_call_id: None,
                 },
                 RequestMessage {
                     role: Role::User,
                     text: "Continue".to_owned(),
+                    images: Vec::new(),
                     tool_calls: Vec::new(),
                     tool_call_id: None,
                 },

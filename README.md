@@ -28,8 +28,42 @@ plaintext keyring entries are migrated automatically.
 For headless environments without a keyring, set `RELAY_MASTER_KEY` to 64 hex
 characters. Keep that value secret: it unlocks the local database.
 
-## Building
+## Installation
 
+### Prebuilt (Linux x86_64)
+
+Download `relay-linux-x86_64.tar.gz` from the
+[latest release](https://github.com/Peter5235252/relay/releases), extract it and
+run `./relay`. The archive also contains `relay-cli`, `relay-clear`, the
+`.desktop` entry and icons for a system-wide install.
+
+### Arch / CachyOS (AUR-style, from source)
+
+```sh
+cd packaging/aur
+makepkg -si
+```
+
+### Local install from a checkout
+
+```sh
+cargo build -p relay-ui -p relay-cli --release
+./packaging/install-local.sh
+```
+
+## Attachments
+
+Relay accepts image attachments (PNG, JPEG, GIF, WebP) in both the desktop
+app and the CLI:
+
+- Desktop: click `+`, drag-and-drop files onto the composer, or paste a path.
+- CLI: `relay-cli --image ./photo.png "describe this"` or `/image ./photo.png`
+  inside the REPL.
+
+Images are stored inside the encrypted SQLCipher database alongside the
+conversation.
+
+## Building
 ```sh
 cargo build -p relay-ui --release
 ```

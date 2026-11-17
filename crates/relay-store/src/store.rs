@@ -336,7 +336,21 @@ impl Store {
             .as_ref()
             .map(serde_json::to_string)
             .transpose()?;
-        let search_text = message.text();
+        let search_text = if message.text().trim().is_empty() {
+            message
+                .blocks
+                .iter()
+                .filter_map(|block| match block {
+                    relay_core::ContentBlock::Image(image) => {
+                        Some(image.name.clone().unwrap_or_else(|| "[image]".to_owned()))
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+        } else {
+            message.text()
+        };
         let created_at = message
             .created_at
             .to_rfc3339_opts(SecondsFormat::Millis, true);

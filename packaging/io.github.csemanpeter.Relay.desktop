@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Relay
+GenericName=AI Chat Client
+Comment=One conversation, every frontier model
+Exec=relay %U
+Icon=io.github.csemanpeter.Relay
+Terminal=false
+Categories=Development;Utility;Network;
+Keywords=AI;LLM;Chat;Gemini;Claude;GPT;Ollama;Relay;
+StartupNotify=true
+StartupWMClass=io.github.csemanpeter.Relay
+MimeType=x-scheme-handler/relay;

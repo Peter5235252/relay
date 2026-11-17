@@ -355,6 +355,12 @@ fn parse_chat(args: &[String]) -> Result<(ChatOptions, Option<String>), String> 
                 );
                 index += 1;
             }
+            "--image" | "--attach" => {
+                options
+                    .images
+                    .push(std::path::PathBuf::from(take_value(&mut index)?));
+                index += 1;
+            }
             "--mode" => {
                 let value = take_value(&mut index)?;
                 options.interaction_mode = Some(parse_interaction(&value)?);
@@ -977,6 +983,7 @@ Chat options:
       --preset <id>         Personality preset
       --instructions <text> Custom instructions for every conversation
       --instructions-file <file>  Read custom instructions from a file
+      --image <path>             Attach an image (repeatable)
       --mode <chat|work>    Chat is web-only; Work enables file/command/MCP tools
       --plan / --build      Read-only Plan or writable Build mode (Work)
   -a, --approval <policy>   none | non-destructive | all

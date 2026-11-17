@@ -32,7 +32,7 @@ mod settings;
 mod tool;
 mod usage;
 
-pub use content::{ChatMessage, ContentBlock, Role};
+pub use content::{ChatMessage, ContentBlock, ImageAttachment, Role};
 pub use conversation::ConversationSummary;
 pub use error::{CoreError, Result};
 pub use model::{

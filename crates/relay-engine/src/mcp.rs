@@ -24,11 +24,11 @@ pub struct McpTool {
 
 impl Drop for McpServer {
     fn drop(&mut self) {
-        if let Ok(mut g) = self.child.lock() {
-            if let Some(mut c) = g.take() {
-                let _ = c.kill();
-                let _ = c.wait();
-            }
+        if let Ok(mut g) = self.child.lock()
+            && let Some(mut c) = g.take()
+        {
+            let _ = c.kill();
+            let _ = c.wait();
         }
     }
 }
@@ -76,12 +76,11 @@ impl McpServer {
                 if line.is_empty() {
                     continue;
                 }
-                if let Ok(v) = serde_json::from_str::<Value>(&line) {
-                    if let Some(id) = v.get("id").and_then(|x| x.as_u64()) {
-                        if let Some(tx) = pending.lock().ok().and_then(|mut m| m.remove(&id)) {
-                            let _ = tx.send(v);
-                        }
-                    }
+                if let Ok(v) = serde_json::from_str::<Value>(&line)
+                    && let Some(id) = v.get("id").and_then(|x| x.as_u64())
+                    && let Some(tx) = pending.lock().ok().and_then(|mut m| m.remove(&id))
+                {
+                    let _ = tx.send(v);
                 }
             }
         });
@@ -138,11 +137,11 @@ impl McpServer {
         )?;
         // Send initialized notification (no response expected).
         let msg = json!({"jsonrpc":"2.0","method":"notifications/initialized"});
-        if let Ok(mut g) = self.stdin.lock() {
-            if let Some(stdin) = g.as_mut() {
-                let _ = writeln!(stdin, "{msg}");
-                let _ = stdin.flush();
-            }
+        if let Ok(mut g) = self.stdin.lock()
+            && let Some(stdin) = g.as_mut()
+        {
+            let _ = writeln!(stdin, "{msg}");
+            let _ = stdin.flush();
         }
         Ok(())
     }

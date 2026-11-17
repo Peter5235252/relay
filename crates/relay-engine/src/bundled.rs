@@ -290,10 +290,9 @@ async fn wait_for_server(port: u16) -> bool {
             .timeout(Duration::from_secs(2))
             .send()
             .await
+            && resp.status().is_success()
         {
-            if resp.status().is_success() {
-                return true;
-            }
+            return true;
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
@@ -318,10 +317,11 @@ pub async fn ensure_ready(
     context_size: u32,
 ) {
     // If already ready with requested variant, nothing to do.
-    if let Ok(s) = state.lock() {
-        if s.status.ready && s.status.active_variant.as_deref() == Some(variant.id()) {
-            return;
-        }
+    if let Ok(s) = state.lock()
+        && s.status.ready
+        && s.status.active_variant.as_deref() == Some(variant.id())
+    {
+        return;
     }
     // Stop existing server if switching or not ready.
     stop_child(&state);
@@ -345,16 +345,15 @@ pub async fn ensure_ready(
         s.status.progress = None;
     }
 
-    if !mp.exists() {
-        if let Err(e) =
+    if !mp.exists()
+        && let Err(e) =
             download_file(variant.gguf_url(), &mp, &state, variant.download_label()).await
-        {
-            if let Ok(mut s) = state.lock() {
-                s.status.error = Some(e);
-                s.status.message = "Bundled model download failed".into();
-            }
-            return;
+    {
+        if let Ok(mut s) = state.lock() {
+            s.status.error = Some(e);
+            s.status.message = "Bundled model download failed".into();
         }
+        return;
     }
     let server = match ensure_llama_server(&dir, &state).await {
         Ok(p) => p,

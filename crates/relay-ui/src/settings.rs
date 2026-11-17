@@ -125,7 +125,7 @@ impl SettingsView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let presets = store
+        let _presets = store
             .presets()
             .unwrap_or_else(|_| relay_core::builtin_presets());
         let default_model = models::model_select(&settings, &settings.default_model, window, cx);
@@ -321,7 +321,7 @@ impl SettingsView {
             self.settings.bundled_context_size = n;
         }
         if let Ok(servers) = serde_json::from_str::<Vec<relay_core::McpServerConfig>>(
-            &self.mcp_config.read(cx).value().to_string(),
+            self.mcp_config.read(cx).value().as_ref(),
         ) {
             self.settings.mcp_servers = servers;
         }

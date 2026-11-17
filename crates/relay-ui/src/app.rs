@@ -19,7 +19,7 @@ use gpui_kit::component::{
     text::TextViewState,
     v_flex,
 };
-use gpui_kit::prelude::{FluentBuilder as _, StatefulInteractiveElement as _};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AppContext as _, Context, Entity, InteractiveElement as _, IntoElement, KeyDownEvent,
     ParentElement as _, Render, SharedString, Styled as _, Subscription, Task, Window, div,
@@ -62,6 +62,8 @@ pub struct ChatState {
     pub(crate) approval_select: Entity<SelectState<SearchableVec<SharedString>>>,
     /// Markdown state per assistant message.
     pub(crate) text_states: HashMap<String, Entity<TextViewState>>,
+    /// Decoded image cache keyed by a hash of (media type, base64 data).
+    pub(crate) image_cache: HashMap<String, std::sync::Arc<gpui_kit::Image>>,
     /// Markdown state per reasoning block.
     pub(crate) thinking_states: HashMap<String, Entity<TextViewState>>,
     /// Assistant messages whose reasoning section is expanded.
@@ -79,6 +81,7 @@ impl ChatState {
     fn clear_caches(&mut self) {
         self.text_states.clear();
         self.thinking_states.clear();
+        self.image_cache.clear();
         self.expanded.clear();
     }
 }
@@ -102,6 +105,8 @@ pub struct RelayApp {
     pub(crate) conversation_id: Option<String>,
     pub(crate) conversation_title: String,
     pub(crate) messages: Vec<ChatMessage>,
+    /// Images staged in the composer but not yet sent.
+    pub(crate) pending_images: Vec<relay_core::ImageAttachment>,
     /// Model used when no conversation has been saved yet.
     pub(crate) draft_model: String,
     pub(crate) sidebar: SidebarState,
@@ -189,6 +194,7 @@ impl RelayApp {
             conversation_id: None,
             conversation_title: "New chat".to_owned(),
             messages: Vec::new(),
+            pending_images: Vec::new(),
             draft_model: initial_model,
             sidebar: SidebarState {
                 search,
@@ -205,6 +211,7 @@ impl RelayApp {
                 reasoning_select,
                 approval_select,
                 text_states: HashMap::new(),
+                image_cache: HashMap::new(),
                 thinking_states: HashMap::new(),
                 expanded: HashSet::new(),
                 scroll: gpui_kit::ScrollHandle::new(),
@@ -344,13 +351,13 @@ impl RelayApp {
             self.runtime.spawn(async move {
                 crate::bundled::ensure_ready(bundled, variant, ctx).await;
             });
-            if let Ok(mut s) = self.bundled.lock() {
-                if s.status.active_variant.as_deref() != Some(variant.id()) {
-                    s.status.ready = false;
-                    s.status.endpoint = None;
-                    s.status.message = format!("Preparing {}…", variant.display_name());
-                    s.status.error = None;
-                }
+            if let Ok(mut s) = self.bundled.lock()
+                && s.status.active_variant.as_deref() != Some(variant.id())
+            {
+                s.status.ready = false;
+                s.status.endpoint = None;
+                s.status.message = format!("Preparing {}…", variant.display_name());
+                s.status.error = None;
             }
             cx.notify();
         }
@@ -935,7 +942,8 @@ impl RelayApp {
             return;
         }
         let prompt = self.chat.composer.read(cx).value().trim().to_owned();
-        if prompt.is_empty() {
+        let pending_images = std::mem::take(&mut self.pending_images);
+        if prompt.is_empty() && pending_images.is_empty() {
             return;
         }
 
@@ -999,7 +1007,14 @@ impl RelayApp {
             },
         };
 
-        let user = ChatMessage::user(prompt);
+        let mut blocks = Vec::new();
+        if !prompt.is_empty() {
+            blocks.push(ContentBlock::text(prompt.clone()));
+        }
+        for image in pending_images {
+            blocks.push(ContentBlock::image(image));
+        }
+        let user = ChatMessage::user_blocks(blocks);
         let outcome = match self.store.append_message(&conversation_id, &user) {
             Ok(outcome) => outcome,
             Err(error) => {
@@ -1014,9 +1029,89 @@ impl RelayApp {
             self.conversation_title = title;
         }
         self.messages.push(user);
+        self.chat
+            .composer
+            .update(cx, |c, cx| c.set_value(String::new(), window, cx));
         self.refresh_conversations(cx);
 
         self.generate(conversation_id, window, cx);
+    }
+
+    pub(crate) fn attach_images(&mut self, paths: Vec<std::path::PathBuf>, cx: &mut Context<Self>) {
+        for path in paths {
+            match read_image_file(&path) {
+                Ok(image) => {
+                    if self.pending_images.len() >= 8 {
+                        self.notice = Some("Too many attachments (max 8).".to_owned());
+                        break;
+                    }
+                    self.pending_images.push(image);
+                }
+                Err(error) => {
+                    self.notice = Some(format!("{}: {error}", path.display()));
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn remove_pending_image(&mut self, index: usize, cx: &mut Context<Self>) {
+        if index < self.pending_images.len() {
+            self.pending_images.remove(index);
+            cx.notify();
+        }
+    }
+
+    /// Decode (once) and cache an image for rendering.
+    pub(crate) fn cached_image(
+        &mut self,
+        media_type: &str,
+        data: &str,
+    ) -> std::sync::Arc<gpui_kit::Image> {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        media_type.hash(&mut hasher);
+        data.hash(&mut hasher);
+        let key = hasher.finish().to_string();
+        if let Some(image) = self.chat.image_cache.get(&key) {
+            return image.clone();
+        }
+        use base64::Engine as _;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(data)
+            .unwrap_or_default();
+        let format = match media_type {
+            "image/jpeg" => gpui_kit::ImageFormat::Jpeg,
+            "image/webp" => gpui_kit::ImageFormat::Webp,
+            "image/gif" => gpui_kit::ImageFormat::Gif,
+            _ => gpui_kit::ImageFormat::Png,
+        };
+        let image = std::sync::Arc::new(gpui_kit::Image {
+            format,
+            bytes,
+            id: 0,
+        });
+        self.chat.image_cache.insert(key, image.clone());
+        image
+    }
+
+    pub(crate) fn open_attach_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        use gpui_kit::PathPromptOptions;
+        let rx = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: true,
+            prompt: Some("Attach images".into()),
+        });
+        cx.spawn(
+            async move |this: gpui_kit::WeakEntity<Self>, cx: &mut gpui_kit::AsyncApp| {
+                if let Ok(Ok(Some(paths))) = rx.await {
+                    let _ = this.update(cx, |this, cx| this.attach_images(paths, cx));
+                }
+            },
+        )
+        .detach();
+        let _ = window;
     }
 
     pub(crate) fn edit_user_message(
@@ -1469,4 +1564,50 @@ pub(crate) fn approval_labels() -> Vec<SharedString> {
         SharedString::from(relay_core::ToolApproval::NonDestructive.label()),
         SharedString::from(relay_core::ToolApproval::All.label()),
     ]
+}
+
+fn read_image_file(path: &std::path::Path) -> Result<relay_core::ImageAttachment, String> {
+    let bytes = std::fs::read(path).map_err(|error| error.to_string())?;
+    if bytes.is_empty() {
+        return Err("empty file".to_owned());
+    }
+    if bytes.len() > 10 * 1024 * 1024 {
+        return Err("image too large (max 10 MB)".to_owned());
+    }
+    let media_type =
+        detect_image_media_type(&bytes, path).ok_or_else(|| "unsupported image type".to_owned())?;
+    let name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .map(str::to_owned);
+    Ok(relay_core::ImageAttachment::from_bytes(
+        media_type, &bytes, name,
+    ))
+}
+
+fn detect_image_media_type(bytes: &[u8], path: &std::path::Path) -> Option<String> {
+    if bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
+        return Some("image/png".to_owned());
+    }
+    if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        return Some("image/jpeg".to_owned());
+    }
+    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        return Some("image/gif".to_owned());
+    }
+    if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        return Some("image/webp".to_owned());
+    }
+    match path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("png") => Some("image/png".to_owned()),
+        Some("jpg") | Some("jpeg") => Some("image/jpeg".to_owned()),
+        Some("gif") => Some("image/gif".to_owned()),
+        Some("webp") => Some("image/webp".to_owned()),
+        _ => None,
+    }
 }

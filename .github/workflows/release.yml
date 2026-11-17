@@ -52,15 +52,19 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build release binary
-        run: cargo build --release -p relay-ui --locked
+        run: cargo build --release -p relay-ui -p relay-cli --locked
 
       - name: Package artifacts
         run: |
           mkdir -p dist
           cp target/release/relay dist/relay-linux-x86_64
-          chmod +x dist/relay-linux-x86_64
+          cp target/release/relay-cli dist/relay-cli-linux-x86_64
+          cp target/release/relay-clear dist/relay-clear-linux-x86_64
+          chmod +x dist/relay-linux-x86_64 dist/relay-cli-linux-x86_64 dist/relay-clear-linux-x86_64
           cp LICENSE README.md dist/
-          tar -C dist -czf relay-linux-x86_64.tar.gz relay-linux-x86_64 LICENSE README.md
+          cp packaging/io.github.csemanpeter.Relay.desktop dist/
+          cp -r packaging/icons dist/
+          tar -C dist -czf relay-linux-x86_64.tar.gz .
           sha256sum relay-linux-x86_64.tar.gz > relay-linux-x86_64.tar.gz.sha256
 
       - name: Upload build artifacts

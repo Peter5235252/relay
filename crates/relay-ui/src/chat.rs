@@ -35,7 +35,8 @@ impl RelayApp {
         let model_select = self.chat.model_select.clone();
         let reasoning_select = self.chat.reasoning_select.clone();
         let composer = self.chat.composer.clone();
-        let can_send = !composer.read(cx).value().trim().is_empty();
+        let can_send =
+            !composer.read(cx).value().trim().is_empty() || !self.pending_images.is_empty();
         let notice = self.notice.clone();
         let messages = self.messages.clone();
         let transcript_title = title.clone();
@@ -589,11 +590,35 @@ impl RelayApp {
                                 .px_4()
                                 .py_3()
                                 .child(
-                                    TextView::markdown(
-                                        SharedString::from(format!("user-{}", message.id)),
-                                        SharedString::from(message.text()),
-                                    )
-                                    .selectable(true),
+                                    v_flex()
+                                        .gap_2()
+                                        .when(!message.images().is_empty(), |this| {
+                                            this.child(h_flex().gap_2().flex_wrap().children(
+                                                message.images().iter().map(|image| {
+                                                    gpui_kit::img(gpui_kit::ImageSource::Image(
+                                                        self.cached_image(
+                                                            &image.media_type,
+                                                            &image.data,
+                                                        ),
+                                                    ))
+                                                    .max_w(gpui_kit::px(280.))
+                                                    .max_h(gpui_kit::px(280.))
+                                                    .rounded(gpui_kit::px(8.))
+                                                }),
+                                            ))
+                                        })
+                                        .when(!message.text().trim().is_empty(), |this| {
+                                            this.child(
+                                                TextView::markdown(
+                                                    SharedString::from(format!(
+                                                        "user-{}",
+                                                        message.id
+                                                    )),
+                                                    SharedString::from(message.text()),
+                                                )
+                                                .selectable(true),
+                                            )
+                                        }),
                                 ),
                         ),
                 )
@@ -1072,6 +1097,9 @@ impl RelayApp {
                     .child(
                         v_flex()
                             .id("composer-box")
+                            .on_drop(cx.listener(|this, paths: &gpui_kit::ExternalPaths, _window, cx| {
+                                this.attach_images(paths.0.to_vec(), cx);
+                            }))
                             .rounded(theme.radius_lg)
                             .border_1()
                             .border_color(theme.border)
@@ -1327,6 +1355,68 @@ impl RelayApp {
                                             ),
                                     )
                                     })
+                                    .when(!self.pending_images.is_empty(), |this| {
+                                        let staged: Vec<(usize, String, std::sync::Arc<String>, String)> =
+                                            self.pending_images
+                                                .iter()
+                                                .enumerate()
+                                                .map(|(index, image)| {
+                                                    (
+                                                        index,
+                                                        image.media_type.clone(),
+                                                        image.data.clone(),
+                                                        image.name.clone().unwrap_or_default(),
+                                                    )
+                                                })
+                                                .collect();
+                                        let thumbs: Vec<_> = staged
+                                            .into_iter()
+                                            .map(|(index, media_type, data, name)| {
+                                                let cached = self.cached_image(&media_type, &data);
+                                                h_flex()
+                                                    .gap_1()
+                                                    .items_center()
+                                                    .rounded(theme.radius)
+                                                    .border_1()
+                                                    .border_color(theme.border)
+                                                    .bg(theme.background)
+                                                    .p_1()
+                                                    .child(
+                                                        gpui_kit::img(gpui_kit::ImageSource::Image(cached))
+                                                            .w(gpui_kit::px(36.))
+                                                            .h(gpui_kit::px(36.))
+                                                            .rounded(gpui_kit::px(4.)),
+                                                    )
+                                                    .child(
+                                                        div()
+                                                            .text_xs()
+                                                            .max_w(px(80.))
+                                                            .truncate()
+                                                            .child(SharedString::from(name)),
+                                                    )
+                                                    .child(
+                                                        Button::new(SharedString::from(format!(
+                                                            "remove-attach-{index}"
+                                                        )))
+                                                        .ghost()
+                                                        .xsmall()
+                                                        .icon(Icon::new(IconName::X))
+                                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                                            this.remove_pending_image(index, cx);
+                                                        })),
+                                                    )
+                                                    .into_any_element()
+                                            })
+                                            .collect();
+                                        this.child(
+                                            h_flex()
+                                                .px_2()
+                                                .pt_2()
+                                                .gap_2()
+                                                .flex_wrap()
+                                                .children(thumbs),
+                                        )
+                                    })
                                     .child(Textarea::new(composer).appearance(false).bordered(false))
                                     .child(
                                         h_flex()
@@ -1365,6 +1455,16 @@ impl RelayApp {
                                                                 .bg(theme.border),
                                                         )
                                                     })
+                                                    .child(
+                                                        Button::new("attach-image")
+                                                            .ghost()
+                                                            .small()
+                                                            .icon(Icon::new(IconName::Plus))
+                                                            .tooltip("Attach image")
+                                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                                this.open_attach_picker(window, cx);
+                                                            })),
+                                                    )
                                                     .child(if streaming {
                                                         Button::new("stop")
                                                             .danger()
@@ -1455,6 +1555,9 @@ fn estimate_message_tokens(message: &ChatMessage) -> u64 {
             }
             ContentBlock::ToolResult { output, .. } => {
                 tokens += u64::from(estimate_tokens(output));
+            }
+            ContentBlock::Image(_) => {
+                tokens += 1024;
             }
             _ => {}
         }

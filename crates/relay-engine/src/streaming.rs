@@ -205,8 +205,8 @@ fn resolve_delegate_model(target: &str, ctx: &DelegateContext) -> Result<ModelSe
     // provider/name heuristics
     if lower.starts_with("ollama:") || lower.starts_with("ollama ") {
         let m = t
-            .splitn(2, |c: char| c == ':' || c.is_whitespace())
-            .nth(1)
+            .split_once(|c: char| c == ':' || c.is_whitespace())
+            .map(|x| x.1)
             .unwrap_or("")
             .trim();
         if m.is_empty() {
@@ -216,8 +216,8 @@ fn resolve_delegate_model(target: &str, ctx: &DelegateContext) -> Result<ModelSe
     }
     if lower.starts_with("local:") || lower.starts_with("local ") {
         let m = t
-            .splitn(2, |c: char| c == ':' || c.is_whitespace())
-            .nth(1)
+            .split_once(|c: char| c == ':' || c.is_whitespace())
+            .map(|x| x.1)
             .unwrap_or("")
             .trim();
         if m.is_empty() {
@@ -273,6 +273,7 @@ async fn run_delegate(
     let mut req = ChatRequest::new(model.clone(), vec![RequestMessage {
         role: Role::User,
         text: prompt,
+        images: Vec::new(),
         tool_calls: Vec::new(),
         tool_call_id: None,
     }])
@@ -439,6 +440,7 @@ pub fn start(
             request.messages.push(RequestMessage {
                 role: Role::Assistant,
                 text: assistant_text.clone(),
+                images: Vec::new(),
                 tool_calls: tool_calls.clone(),
                 tool_call_id: None,
             });
@@ -477,6 +479,7 @@ pub fn start(
                 request.messages.push(RequestMessage {
                     role: Role::Tool,
                     text: output,
+                    images: Vec::new(),
                     tool_calls: Vec::new(),
                     tool_call_id: Some(call.id.clone()),
                 });

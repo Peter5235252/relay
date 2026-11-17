@@ -9,6 +9,7 @@ repository.workspace = true
 description = "Provider-neutral conversation types, model catalog, prompt assembly, and cost accounting for Relay."
 
 [dependencies]
+base64.workspace = true
 chrono.workspace = true
 serde.workspace = true
 serde_json.workspace = true
