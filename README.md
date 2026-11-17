@@ -37,7 +37,7 @@ Download `relay-linux-x86_64.tar.gz` from the
 run `./relay`. The archive also contains `relay-cli`, `relay-clear`, the
 `.desktop` entry and icons for a system-wide install.
 
-### Arch / CachyOS (AUR-style, from source)
+### Arch (AUR-style, from source)
 
 ```sh
 cd packaging/aur
