@@ -539,19 +539,11 @@ async fn stream_assistant(
                         spinner_stop.store(true, std::sync::atomic::Ordering::Relaxed);
                         message.append_text(&chunk);
                         report.text.push_str(&chunk);
-                        if !silent {
-                            print!("{}", chunk);
-                            let _ = std::io::stdout().flush();
-                        }
                     }
                     StreamEvent::Thinking(chunk) => {
                         spinner_stop.store(true, std::sync::atomic::Ordering::Relaxed);
                         message.append_thinking(&chunk, model.provider.id());
                         report.thinking.push_str(&chunk);
-                        if !silent && session.show_thinking {
-                            print!("{}", output::dim(&chunk));
-                            let _ = std::io::stdout().flush();
-                        }
                     }
                     StreamEvent::Usage(usage) => {
                         if let Some(existing) = &mut report.usage {
@@ -619,11 +611,20 @@ async fn stream_assistant(
     }
 
     if !silent {
-        // Ensure the streamed text ends on its own line before the footer.
-        if !report.text.is_empty() && !report.text.ends_with('\n') {
+        if session.show_thinking && !report.thinking.trim().is_empty() {
+            eprintln!("{}", output::dim("  reasoning"));
+            for line in report.thinking.trim().lines() {
+                eprintln!("  {}", output::dim(line));
+            }
+            eprintln!();
+        }
+        if !report.text.trim().is_empty() {
+            print!("{}", output::render_markdown(&report.text));
+            if !report.text.ends_with('\n') {
+                println!();
+            }
             println!();
         }
-        eprintln!();
 
         let estimated = session
             .messages
