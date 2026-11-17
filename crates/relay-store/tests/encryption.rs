@@ -34,7 +34,7 @@ fn new_database_is_encrypted_at_rest() {
     {
         let store = Store::open(&path, &key(1)).expect("open encrypted store");
         let id = store
-            .create_conversation("gpt-6.1-sol")
+            .create_conversation("gpt-6.2-sol")
             .expect("create conversation");
         store
             .append_message(&id, &ChatMessage::user(marker))
@@ -84,7 +84,7 @@ fn wrong_key_is_rejected() {
     {
         let store = Store::open(&path, &key(1)).expect("open encrypted store");
         let id = store
-            .create_conversation("gpt-6.1-sol")
+            .create_conversation("gpt-6.2-sol")
             .expect("create conversation");
         store
             .append_message(&id, &ChatMessage::user("private data"))
@@ -113,7 +113,7 @@ fn plaintext_database_is_encrypted_in_place() {
             );
             CREATE INDEX conversations_updated ON conversations(updated_at DESC);
             INSERT INTO conversations (id, title, model_slug, created_at, updated_at)
-            VALUES ('legacy-id', '{marker}', 'gpt-6.1-sol',
+            VALUES ('legacy-id', '{marker}', 'gpt-6.2-sol',
                     '2026-11-15T08:00:00.000Z', '2026-11-15T08:00:00.000Z');"
         ))
         .expect("seed plaintext database");
@@ -185,7 +185,7 @@ fn plaintext_full_text_index_survives_migration() {
                 VALUES (new.rowid, new.search_text, new.conversation_id, new.id);
             END;
             INSERT INTO conversations (id, title, model_slug, created_at, updated_at)
-            VALUES ('legacy-fts', 'Legacy search', 'gpt-6.1-sol',
+            VALUES ('legacy-fts', 'Legacy search', 'gpt-6.2-sol',
                     '2026-11-15T08:00:00.000Z', '2026-11-15T08:00:00.000Z');
             INSERT INTO messages
                 (id, conversation_id, role, content_json, search_text, created_at, position)

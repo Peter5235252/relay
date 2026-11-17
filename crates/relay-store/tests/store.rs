@@ -59,14 +59,14 @@ fn creating_and_listing_conversations_works() {
 fn messages_round_trip_with_blocks_and_usage() {
     let store = store();
     let id = store
-        .create_conversation("gpt-6.1-sol")
+        .create_conversation("gpt-6.2-sol")
         .expect("create conversation");
     store
         .append_message(&id, &ChatMessage::user("Hello"))
         .expect("user message");
 
     let mut assistant = ChatMessage::assistant(
-        "gpt-6.1-sol",
+        "gpt-6.2-sol",
         vec![ContentBlock::text("Hi there")],
         Some(Usage::new(12, 4, 0, 2)),
     );
@@ -83,7 +83,7 @@ fn messages_round_trip_with_blocks_and_usage() {
     assert_eq!(messages[1].thinking(), "A short internal note");
     assert_eq!(messages[1].usage, Some(Usage::new(12, 4, 0, 2)));
     assert_eq!(messages[1].error.as_deref(), Some("interrupted"));
-    assert_eq!(messages[1].model.as_deref(), Some("gpt-6.1-sol"));
+    assert_eq!(messages[1].model.as_deref(), Some("gpt-6.2-sol"));
 }
 
 #[test]

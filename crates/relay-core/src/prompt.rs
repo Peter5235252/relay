@@ -188,7 +188,7 @@ mod tests {
     #[test]
     fn empty_assistant_turns_are_skipped() {
         let user = ChatMessage::user("hi");
-        let empty = ChatMessage::assistant("gpt-6-astra", Vec::new(), None);
+        let empty = ChatMessage::assistant("gpt-6.2-astra", Vec::new(), None);
         let history = request_history(&[user, empty]);
         assert_eq!(history.len(), 1);
     }

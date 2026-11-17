@@ -151,7 +151,7 @@ async fn openai_streams_reasoning_summary_and_usage() {
         .await;
 
     let events = collect(
-        request(model("gpt-6.1-sol"), &server.uri(), "test-key"),
+        request(model("gpt-6.2-sol"), &server.uri(), "test-key"),
         CancellationToken::new(),
     )
     .await
@@ -265,7 +265,7 @@ async fn http_errors_are_typed_and_redacted() {
 async fn missing_keys_fail_before_any_request() {
     let server = MockServer::start().await;
     let request = ChatRequest::new(
-        model("gpt-6-astra"),
+        model("gpt-6.2-astra"),
         vec![RequestMessage {
             role: Role::User,
             text: "Hello".to_owned(),

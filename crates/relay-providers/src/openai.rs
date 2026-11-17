@@ -300,7 +300,7 @@ mod tests {
     };
 
     fn request() -> ChatRequest {
-        let model = ModelSelection::from_spec(find_model("gpt-6.1-sol").expect("model"));
+        let model = ModelSelection::from_spec(find_model("gpt-6.2-sol").expect("model"));
         ChatRequest::new(
             model,
             vec![
@@ -335,7 +335,7 @@ mod tests {
     #[test]
     fn body_omits_sampling_controls_and_sets_reasoning() {
         let value = body(&request());
-        assert_eq!(value["model"], "gpt-6.1-sol");
+        assert_eq!(value["model"], "gpt-6.2-sol");
         assert_eq!(value["store"], false);
         assert_eq!(value["stream"], true);
         assert_eq!(value["instructions"], "Be terse.");
