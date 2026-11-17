@@ -253,39 +253,39 @@ async fn ensure_llama_server(
     }
     #[cfg(target_os = "linux")]
     {
-    if let Some(p) = find_llama_server(dir) {
-        return Ok(p);
-    }
-    let ldir = llama_dir(dir);
-    std::fs::create_dir_all(&ldir).map_err(|e| e.to_string())?;
-    let archive_path = dir.join(LLAMA_ARCHIVE);
-    if !archive_path.exists() {
-        download_file(LLAMA_URL, &archive_path, state, "llama-server").await?;
-    }
-    if let Ok(mut s) = state.lock() {
-        s.status.message = "Extracting llama-server…".to_owned();
-        s.status.progress = None;
-    }
-    let archive_path2 = archive_path.clone();
-    let ldir2 = ldir.clone();
-    tokio::task::spawn_blocking(move || {
-        let f = std::fs::File::open(&archive_path2).map_err(|e| e.to_string())?;
-        let gz = flate2::read::GzDecoder::new(f);
-        let mut ar = tar::Archive::new(gz);
-        ar.unpack(&ldir2).map_err(|e| e.to_string())?;
-        Ok::<(), String>(())
-    })
-    .await
-    .map_err(|e| e.to_string())??;
-    if let Some(p) = find_llama_server(dir) {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755));
+        if let Some(p) = find_llama_server(dir) {
+            return Ok(p);
         }
-        return Ok(p);
-    }
-    Err("llama-server not found after extraction".to_owned())
+        let ldir = llama_dir(dir);
+        std::fs::create_dir_all(&ldir).map_err(|e| e.to_string())?;
+        let archive_path = dir.join(LLAMA_ARCHIVE);
+        if !archive_path.exists() {
+            download_file(LLAMA_URL, &archive_path, state, "llama-server").await?;
+        }
+        if let Ok(mut s) = state.lock() {
+            s.status.message = "Extracting llama-server…".to_owned();
+            s.status.progress = None;
+        }
+        let archive_path2 = archive_path.clone();
+        let ldir2 = ldir.clone();
+        tokio::task::spawn_blocking(move || {
+            let f = std::fs::File::open(&archive_path2).map_err(|e| e.to_string())?;
+            let gz = flate2::read::GzDecoder::new(f);
+            let mut ar = tar::Archive::new(gz);
+            ar.unpack(&ldir2).map_err(|e| e.to_string())?;
+            Ok::<(), String>(())
+        })
+        .await
+        .map_err(|e| e.to_string())??;
+        if let Some(p) = find_llama_server(dir) {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755));
+            }
+            return Ok(p);
+        }
+        Err("llama-server not found after extraction".to_owned())
     }
 }
 
