@@ -36,7 +36,7 @@ impl RelayApp {
         let reasoning_select = self.chat.reasoning_select.clone();
         let composer = self.chat.composer.clone();
         let can_send =
-            !composer.read(cx).value().trim().is_empty() || !self.pending_images.is_empty();
+            !composer.read(cx).value().trim().is_empty() || !self.pending_attachments.is_empty();
         let notice = self.notice.clone();
         let messages = self.messages.clone();
         let transcript_title = title.clone();
@@ -1098,7 +1098,7 @@ impl RelayApp {
                         v_flex()
                             .id("composer-box")
                             .on_drop(cx.listener(|this, paths: &gpui_kit::ExternalPaths, _window, cx| {
-                                this.attach_images(paths.0.to_vec(), cx);
+                                this.attach_files(paths.0.to_vec(), cx);
                             }))
                             .rounded(theme.radius_lg)
                             .border_1()
@@ -1355,24 +1355,51 @@ impl RelayApp {
                                             ),
                                     )
                                     })
-                                    .when(!self.pending_images.is_empty(), |this| {
-                                        let staged: Vec<(usize, String, std::sync::Arc<String>, String)> =
-                                            self.pending_images
-                                                .iter()
-                                                .enumerate()
-                                                .map(|(index, image)| {
-                                                    (
-                                                        index,
-                                                        image.media_type.clone(),
-                                                        image.data.clone(),
-                                                        image.name.clone().unwrap_or_default(),
-                                                    )
-                                                })
-                                                .collect();
+                                    .when(!self.pending_attachments.is_empty(), |this| {
+                                        let staged: Vec<(usize, relay_core::ContentBlock)> = self
+                                            .pending_attachments
+                                            .iter()
+                                            .cloned()
+                                            .enumerate()
+                                            .map(|(index, block)| (index, block))
+                                            .collect();
                                         let thumbs: Vec<_> = staged
                                             .into_iter()
-                                            .map(|(index, media_type, data, name)| {
-                                                let cached = self.cached_image(&media_type, &data);
+                                            .map(|(index, block)| {
+                                                let label = match &block {
+                                                    relay_core::ContentBlock::Image(image) => {
+                                                        image.name.clone().unwrap_or_else(|| "image".to_owned())
+                                                    }
+                                                    relay_core::ContentBlock::Text { text } => text
+                                                        .lines()
+                                                        .next()
+                                                        .unwrap_or("text file")
+                                                        .to_owned(),
+                                                    _ => "attachment".to_owned(),
+                                                };
+                                                let preview = match &block {
+                                                    relay_core::ContentBlock::Image(image) => {
+                                                        let cached = self.cached_image(
+                                                            &image.media_type,
+                                                            &image.data,
+                                                        );
+                                                        gpui_kit::img(gpui_kit::ImageSource::Image(cached))
+                                                            .w(gpui_kit::px(36.))
+                                                            .h(gpui_kit::px(36.))
+                                                            .rounded(gpui_kit::px(4.))
+                                                            .into_any_element()
+                                                    }
+                                                    _ => div()
+                                                        .w(gpui_kit::px(36.))
+                                                        .h(gpui_kit::px(36.))
+                                                        .rounded(gpui_kit::px(4.))
+                                                        .bg(theme.muted)
+                                                        .flex()
+                                                        .items_center()
+                                                        .justify_center()
+                                                        .child(Icon::new(IconName::Archive).xsmall())
+                                                        .into_any_element(),
+                                                };
                                                 h_flex()
                                                     .gap_1()
                                                     .items_center()
@@ -1381,18 +1408,13 @@ impl RelayApp {
                                                     .border_color(theme.border)
                                                     .bg(theme.background)
                                                     .p_1()
-                                                    .child(
-                                                        gpui_kit::img(gpui_kit::ImageSource::Image(cached))
-                                                            .w(gpui_kit::px(36.))
-                                                            .h(gpui_kit::px(36.))
-                                                            .rounded(gpui_kit::px(4.)),
-                                                    )
+                                                    .child(preview)
                                                     .child(
                                                         div()
                                                             .text_xs()
                                                             .max_w(px(80.))
                                                             .truncate()
-                                                            .child(SharedString::from(name)),
+                                                            .child(SharedString::from(label)),
                                                     )
                                                     .child(
                                                         Button::new(SharedString::from(format!(
@@ -1402,7 +1424,7 @@ impl RelayApp {
                                                         .xsmall()
                                                         .icon(Icon::new(IconName::X))
                                                         .on_click(cx.listener(move |this, _, _, cx| {
-                                                            this.remove_pending_image(index, cx);
+                                                            this.remove_pending_attachment(index, cx);
                                                         })),
                                                     )
                                                     .into_any_element()

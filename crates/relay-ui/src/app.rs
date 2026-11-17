@@ -106,7 +106,7 @@ pub struct RelayApp {
     pub(crate) conversation_title: String,
     pub(crate) messages: Vec<ChatMessage>,
     /// Images staged in the composer but not yet sent.
-    pub(crate) pending_images: Vec<relay_core::ImageAttachment>,
+    pub(crate) pending_attachments: Vec<relay_core::ContentBlock>,
     /// Model used when no conversation has been saved yet.
     pub(crate) draft_model: String,
     pub(crate) sidebar: SidebarState,
@@ -194,7 +194,7 @@ impl RelayApp {
             conversation_id: None,
             conversation_title: "New chat".to_owned(),
             messages: Vec::new(),
-            pending_images: Vec::new(),
+            pending_attachments: Vec::new(),
             draft_model: initial_model,
             sidebar: SidebarState {
                 search,
@@ -942,8 +942,8 @@ impl RelayApp {
             return;
         }
         let prompt = self.chat.composer.read(cx).value().trim().to_owned();
-        let pending_images = std::mem::take(&mut self.pending_images);
-        if prompt.is_empty() && pending_images.is_empty() {
+        let pending_attachments = std::mem::take(&mut self.pending_attachments);
+        if prompt.is_empty() && pending_attachments.is_empty() {
             return;
         }
 
@@ -1011,9 +1011,7 @@ impl RelayApp {
         if !prompt.is_empty() {
             blocks.push(ContentBlock::text(prompt.clone()));
         }
-        for image in pending_images {
-            blocks.push(ContentBlock::image(image));
-        }
+        blocks.extend(pending_attachments);
         let user = ChatMessage::user_blocks(blocks);
         let outcome = match self.store.append_message(&conversation_id, &user) {
             Ok(outcome) => outcome,
@@ -1037,15 +1035,15 @@ impl RelayApp {
         self.generate(conversation_id, window, cx);
     }
 
-    pub(crate) fn attach_images(&mut self, paths: Vec<std::path::PathBuf>, cx: &mut Context<Self>) {
+    pub(crate) fn attach_files(&mut self, paths: Vec<std::path::PathBuf>, cx: &mut Context<Self>) {
         for path in paths {
-            match read_image_file(&path) {
-                Ok(image) => {
-                    if self.pending_images.len() >= 8 {
+            match read_file_attachment(&path) {
+                Ok(block) => {
+                    if self.pending_attachments.len() >= 8 {
                         self.notice = Some("Too many attachments (max 8).".to_owned());
                         break;
                     }
-                    self.pending_images.push(image);
+                    self.pending_attachments.push(block);
                 }
                 Err(error) => {
                     self.notice = Some(format!("{}: {error}", path.display()));
@@ -1055,9 +1053,9 @@ impl RelayApp {
         cx.notify();
     }
 
-    pub(crate) fn remove_pending_image(&mut self, index: usize, cx: &mut Context<Self>) {
-        if index < self.pending_images.len() {
-            self.pending_images.remove(index);
+    pub(crate) fn remove_pending_attachment(&mut self, index: usize, cx: &mut Context<Self>) {
+        if index < self.pending_attachments.len() {
+            self.pending_attachments.remove(index);
             cx.notify();
         }
     }
@@ -1106,7 +1104,7 @@ impl RelayApp {
         cx.spawn(
             async move |this: gpui_kit::WeakEntity<Self>, cx: &mut gpui_kit::AsyncApp| {
                 if let Ok(Ok(Some(paths))) = rx.await {
-                    let _ = this.update(cx, |this, cx| this.attach_images(paths, cx));
+                    let _ = this.update(cx, |this, cx| this.attach_files(paths, cx));
                 }
             },
         )
@@ -1566,23 +1564,30 @@ pub(crate) fn approval_labels() -> Vec<SharedString> {
     ]
 }
 
-fn read_image_file(path: &std::path::Path) -> Result<relay_core::ImageAttachment, String> {
+fn read_file_attachment(path: &std::path::Path) -> Result<relay_core::ContentBlock, String> {
     let bytes = std::fs::read(path).map_err(|error| error.to_string())?;
     if bytes.is_empty() {
         return Err("empty file".to_owned());
     }
-    if bytes.len() > 10 * 1024 * 1024 {
-        return Err("image too large (max 10 MB)".to_owned());
+    if bytes.len() > 2 * 1024 * 1024 {
+        return Err("file too large (max 2 MB)".to_owned());
     }
-    let media_type =
-        detect_image_media_type(&bytes, path).ok_or_else(|| "unsupported image type".to_owned())?;
     let name = path
         .file_name()
         .and_then(|value| value.to_str())
-        .map(str::to_owned);
-    Ok(relay_core::ImageAttachment::from_bytes(
-        media_type, &bytes, name,
-    ))
+        .map(str::to_owned)
+        .unwrap_or_else(|| "attachment".to_owned());
+    if let Some(media_type) = detect_image_media_type(&bytes, path) {
+        return Ok(relay_core::ContentBlock::image(
+            relay_core::ImageAttachment::from_bytes(media_type, &bytes, Some(name)),
+        ));
+    }
+    match String::from_utf8(bytes) {
+        Ok(text) => Ok(relay_core::ContentBlock::text(format!(
+            "--- {name} ---\n{text}"
+        ))),
+        Err(_) => Err("unsupported binary file".to_owned()),
+    }
 }
 
 fn detect_image_media_type(bytes: &[u8], path: &std::path::Path) -> Option<String> {

@@ -51,6 +51,8 @@ pub struct ChatOptions {
     pub show_thinking: Option<bool>,
     /// Image files to attach to the first prompt.
     pub images: Vec<std::path::PathBuf>,
+    /// Arbitrary files to attach to the first prompt.
+    pub files: Vec<std::path::PathBuf>,
 }
 
 /// The result of one assistant turn.
@@ -76,7 +78,7 @@ struct ChatSession {
     messages: Vec<ChatMessage>,
     yes: bool,
     show_thinking: bool,
-    pending_images: Vec<relay_core::ImageAttachment>,
+    pending_attachments: Vec<relay_core::ContentBlock>,
 }
 
 enum Flow {
@@ -264,11 +266,11 @@ fn open_session(
         .model
         .clone()
         .unwrap_or_else(|| ctx.settings.default_model.clone());
-    let mut pending_images = Vec::new();
-    for path in &options.images {
-        match read_image_file(path) {
-            Ok(image) => pending_images.push(image),
-            Err(error) => eprintln!("image: {path:?}: {error}"),
+    let mut pending_attachments = Vec::new();
+    for path in options.images.iter().chain(options.files.iter()) {
+        match read_file_attachment(path) {
+            Ok(block) => pending_attachments.push(block),
+            Err(error) => eprintln!("attachment: {path:?}: {error}"),
         }
     }
     Ok(ChatSession {
@@ -278,7 +280,7 @@ fn open_session(
         messages: Vec::new(),
         yes: options.yes,
         show_thinking: ctx.settings.show_thinking,
-        pending_images,
+        pending_attachments,
     })
 }
 
@@ -307,7 +309,7 @@ fn session_from_summary(
         messages,
         yes: false,
         show_thinking: ctx.settings.show_thinking,
-        pending_images: Vec::new(),
+        pending_attachments: Vec::new(),
     })
 }
 
@@ -423,14 +425,12 @@ async fn send_prompt(
     let Some(id) = session.conversation_id.clone() else {
         return Err("Could not create a conversation.".to_owned());
     };
-    let pending_images = std::mem::take(&mut session.pending_images);
+    let pending_attachments = std::mem::take(&mut session.pending_attachments);
     let mut blocks = Vec::new();
     if !prompt.trim().is_empty() {
         blocks.push(relay_core::ContentBlock::text(prompt));
     }
-    for image in pending_images {
-        blocks.push(relay_core::ContentBlock::image(image));
-    }
+    blocks.extend(pending_attachments);
     let user = relay_core::ChatMessage::user_blocks(blocks);
     let outcome = ctx
         .store
@@ -730,10 +730,10 @@ async fn run_slash(
             if rest.is_empty() {
                 return Err("Usage: /image <path>".to_owned());
             }
-            match read_image_file(std::path::Path::new(rest)) {
-                Ok(image) => {
-                    session.pending_images.push(image);
-                    println!("Attached image.");
+            match read_file_attachment(std::path::Path::new(rest)) {
+                Ok(block) => {
+                    session.pending_attachments.push(block);
+                    println!("Attached file.");
                 }
                 Err(error) => return Err(error),
             }
@@ -747,7 +747,7 @@ async fn run_slash(
                 messages: Vec::new(),
                 yes: session.yes,
                 show_thinking: session.show_thinking,
-                pending_images: Vec::new(),
+                pending_attachments: Vec::new(),
             };
             println!("New conversation · {}", session.model_slug);
         }
@@ -1093,7 +1093,7 @@ async fn run_slash(
                 messages: Vec::new(),
                 yes: session.yes,
                 show_thinking: session.show_thinking,
-                pending_images: Vec::new(),
+                pending_attachments: Vec::new(),
             };
         }
         "delete" => {
@@ -1114,7 +1114,7 @@ async fn run_slash(
                 messages: Vec::new(),
                 yes: session.yes,
                 show_thinking: session.show_thinking,
-                pending_images: Vec::new(),
+                pending_attachments: Vec::new(),
             };
         }
         "export" => {
@@ -1731,23 +1731,30 @@ fn spawn_auto_summary(ctx: &CliContext) {
     });
 }
 
-fn read_image_file(path: &std::path::Path) -> Result<relay_core::ImageAttachment, String> {
+fn read_file_attachment(path: &std::path::Path) -> Result<relay_core::ContentBlock, String> {
     let bytes = std::fs::read(path).map_err(|error| error.to_string())?;
     if bytes.is_empty() {
         return Err("empty file".to_owned());
     }
-    if bytes.len() > 10 * 1024 * 1024 {
-        return Err("image too large (max 10 MB)".to_owned());
+    if bytes.len() > 2 * 1024 * 1024 {
+        return Err("file too large (max 2 MB)".to_owned());
     }
-    let media_type =
-        detect_image_media_type(&bytes, path).ok_or_else(|| "unsupported image type".to_owned())?;
     let name = path
         .file_name()
         .and_then(|value| value.to_str())
-        .map(str::to_owned);
-    Ok(relay_core::ImageAttachment::from_bytes(
-        media_type, &bytes, name,
-    ))
+        .map(str::to_owned)
+        .unwrap_or_else(|| "attachment".to_owned());
+    if let Some(media_type) = detect_image_media_type(&bytes, path) {
+        return Ok(relay_core::ContentBlock::image(
+            relay_core::ImageAttachment::from_bytes(media_type, &bytes, Some(name)),
+        ));
+    }
+    match String::from_utf8(bytes) {
+        Ok(text) => Ok(relay_core::ContentBlock::text(format!(
+            "--- {name} ---\n{text}"
+        ))),
+        Err(_) => Err("unsupported binary file".to_owned()),
+    }
 }
 
 fn detect_image_media_type(bytes: &[u8], path: &std::path::Path) -> Option<String> {

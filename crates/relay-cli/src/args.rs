@@ -361,6 +361,12 @@ fn parse_chat(args: &[String]) -> Result<(ChatOptions, Option<String>), String> 
                     .push(std::path::PathBuf::from(take_value(&mut index)?));
                 index += 1;
             }
+            "--file" => {
+                options
+                    .files
+                    .push(std::path::PathBuf::from(take_value(&mut index)?));
+                index += 1;
+            }
             "--mode" => {
                 let value = take_value(&mut index)?;
                 options.interaction_mode = Some(parse_interaction(&value)?);
