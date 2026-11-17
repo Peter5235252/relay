@@ -103,9 +103,13 @@ impl Tool {
 }
 
 /// Heuristic: is a shell command likely non-destructive/read-only?
+///
+/// This covers both POSIX shells and PowerShell/cmd so auto-approval behaves
+/// the same on every platform.
 pub fn is_command_nondestructive(cmd: &str) -> bool {
     let c = cmd.trim().to_lowercase();
     let safe_prefixes = [
+        // POSIX
         "ls",
         "cat ",
         "head ",
@@ -128,21 +132,70 @@ pub fn is_command_nondestructive(cmd: &str) -> bool {
         "du ",
         "df ",
         "tree",
+        // PowerShell / cmd
+        "dir",
+        "get-childitem",
+        "gci",
+        "get-content",
+        "gc ",
+        "get-location",
+        "get-item",
+        "gi ",
+        "get-itemproperty",
+        "get-process",
+        "gps",
+        "get-service",
+        "gsv",
+        "get-date",
+        "get-command",
+        "gcm",
+        "get-help",
+        "help ",
+        "select-string",
+        "sls ",
+        "measure-object",
+        "measure",
+        "test-path",
+        "resolve-path",
+        "get-filehash",
+        "get-acl",
+        "hostname",
+        "systeminfo",
+        "ipconfig",
+        "get-netipaddress",
+        "get-netadapter",
+        "get-volume",
+        "get-disk",
+        "get-computerinfo",
+        "get-culture",
+        "get-timezone",
+        "ver",
+        "where.exe",
+        "more ",
+        // Version checks
         "git status",
         "git log",
         "git diff",
         "git show",
         "git branch",
+        "git rev-parse",
+        "git describe",
+        "git ls-files",
+        "git remote -v",
         "cargo --version",
         "rustc --version",
         "python3 --version",
+        "python --version",
         "node --version",
+        "pwsh --version",
+        "powershell -version",
     ];
     if c.is_empty() {
         return false;
     }
     // obvious destructive patterns
     let bad = [
+        // POSIX
         " rm ",
         "rm ",
         "sudo",
@@ -157,8 +210,6 @@ pub fn is_command_nondestructive(cmd: &str) -> bool {
         "reboot",
         "kill",
         "pkill",
-        ">",
-        ">>",
         "tee ",
         "curl ",
         "wget ",
@@ -168,6 +219,58 @@ pub fn is_command_nondestructive(cmd: &str) -> bool {
         "pacman",
         "dnf",
         "systemctl",
+        // PowerShell / cmd
+        "remove-item",
+        "ri ",
+        "del ",
+        "erase ",
+        "rd ",
+        "rmdir",
+        "move-item",
+        "copy-item",
+        "set-content",
+        "add-content",
+        "clear-content",
+        "out-file",
+        "new-item",
+        "invoke-expression",
+        "iex ",
+        "invoke-webrequest",
+        "iwr ",
+        "invoke-restmethod",
+        "irm ",
+        "start-process",
+        "saps ",
+        "start-job",
+        "stop-process",
+        "spps ",
+        "taskkill",
+        "stop-computer",
+        "restart-computer",
+        "clear-disk",
+        "initialize-disk",
+        "diskpart",
+        "format-volume",
+        "reg ",
+        "reg.exe",
+        "sc.exe",
+        "schtasks",
+        "wmic",
+        "takeown",
+        "icacls",
+        "bcdedit",
+        "cipher ",
+        "manage-bde",
+        "net user",
+        "net localgroup",
+        "set-executionpolicy",
+        "install-module",
+        "install-package",
+        "winget",
+        "choco ",
+        "scoop ",
+        ">",
+        ">>",
     ];
     for b in bad {
         if c.contains(b) || c.starts_with(b.trim()) {
@@ -273,10 +376,10 @@ pub fn tool_specs(mode: AgentMode) -> Vec<ToolSpec> {
     if mode.allows_writes() {
         specs.push(ToolSpec {
             name: "run_command".into(),
-            description: "Run a shell command and return its output. Requires user approval unless auto-approved.".into(),
+            description: "Run a shell command and return its output. Uses PowerShell on Windows and zsh/bash on macOS/Linux. Requires user approval unless auto-approved.".into(),
             parameters: serde_json::json!({
                 "type": "object",
-                "properties": { "command": {"type":"string","description":"Shell command to execute"} },
+                "properties": { "command": {"type":"string","description":"Shell command to execute (PowerShell syntax on Windows)"} },
                 "required": ["command"]
             }),
         });

@@ -6,6 +6,10 @@
 use std::io::Write as _;
 
 fn main() {
+    #[cfg(windows)]
+    {
+        let _ = enable_ansi_support::enable_ansi_support();
+    }
     print!("\x1b[2J\x1b[3J\x1b[H");
     let _ = std::io::stdout().flush();
 }

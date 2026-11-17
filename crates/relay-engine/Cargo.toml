@@ -13,7 +13,6 @@ relay-core.workspace = true
 relay-providers.workspace = true
 relay-store.workspace = true
 chrono.workspace = true
-flate2.workspace = true
 futures-util.workspace = true
 getrandom = "0.3"
 hex = "0.4"
@@ -23,12 +22,18 @@ reqwest.workspace = true
 ring = "0.17"
 serde_json.workspace = true
 smol.workspace = true
-tar.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
 urlencoding = "2"
 zeroize.workspace = true
+
+[target.'cfg(not(windows))'.dependencies]
+flate2.workspace = true
+tar.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+zip.workspace = true
 
 [lints]
 workspace = true

@@ -11,12 +11,18 @@ permissions:
 
 jobs:
   build:
-    name: Build (${{ matrix.os }})
+    name: Build (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-24.04
+            name: linux-x86_64
+          - os: macos-latest
+            name: macos-universal
+          - os: windows-latest
+            name: windows-x64
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -39,56 +45,127 @@ jobs:
         with:
           toolchain: "1.100.0"
 
+      - name: Add macOS universal targets
+        if: runner.os == 'macOS'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Build release binaries
+      - name: Build release binaries (Linux)
+        if: runner.os == 'Linux'
         run: cargo build --release --locked -p relay-ui -p relay-cli
+
+      - name: Build universal release binaries (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          cargo build --release --locked --target aarch64-apple-darwin -p relay-ui -p relay-cli
+          cargo build --release --locked --target x86_64-apple-darwin -p relay-ui -p relay-cli
+
+      - name: Build release binaries (Windows)
+        if: runner.os == 'Windows'
+        run: cargo build --release --locked -p relay-ui -p relay-cli
+
+      - name: Read version
+        id: version
+        shell: bash
+        run: |
+          version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Package artifacts (Linux)
         if: runner.os == 'Linux'
         run: |
-          mkdir -p dist
+          set -euo pipefail
+          mkdir -p dist/release
           cp target/release/relay dist/relay-linux-x86_64
           cp target/release/relay-cli dist/relay-cli-linux-x86_64
           cp target/release/relay-clear dist/relay-clear-linux-x86_64
           chmod +x dist/relay-linux-x86_64 dist/relay-cli-linux-x86_64 dist/relay-clear-linux-x86_64
           cp LICENSE README.md dist/
           cp packaging/io.github.csemanpeter.Relay.desktop dist/
-          cp -r packaging/icons dist/
-          tar -C dist -czf relay-linux-x86_64.tar.gz .
-          sha256sum relay-linux-x86_64.tar.gz > relay-linux-x86_64.tar.gz.sha256
+          cp -r packaging/icons dist/icons
+          tar -C dist -czf dist/release/relay-linux-x86_64.tar.gz \
+            relay-linux-x86_64 relay-cli-linux-x86_64 relay-clear-linux-x86_64 \
+            README.md LICENSE io.github.csemanpeter.Relay.desktop icons
+          cd dist/release
+          sha256sum relay-linux-x86_64.tar.gz > SHA256SUMS-linux
 
-      - name: Package artifacts (macOS)
+      - name: Package app bundle and DMG (macOS)
         if: runner.os == 'macOS'
         run: |
-          mkdir -p dist
-          cp target/release/relay dist/relay-macos
-          cp target/release/relay-cli dist/relay-cli-macos
-          cp target/release/relay-clear dist/relay-clear-macos
-          chmod +x dist/relay-macos dist/relay-cli-macos dist/relay-clear-macos
-          cp LICENSE README.md dist/
-          tar -C dist -czf relay-macos.tar.gz .
-          shasum -a 256 relay-macos.tar.gz > relay-macos.tar.gz.sha256
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          mkdir -p dist/release "dist/Relay.app/Contents/MacOS" "dist/Relay.app/Contents/Resources"
+          lipo -create -output dist/relay \
+            target/aarch64-apple-darwin/release/relay \
+            target/x86_64-apple-darwin/release/relay
+          lipo -create -output dist/relay-cli \
+            target/aarch64-apple-darwin/release/relay-cli \
+            target/x86_64-apple-darwin/release/relay-cli
+          lipo -create -output dist/relay-clear \
+            target/aarch64-apple-darwin/release/relay-clear \
+            target/x86_64-apple-darwin/release/relay-clear
+          chmod +x dist/relay dist/relay-cli dist/relay-clear
+          cp dist/relay dist/relay-cli dist/relay-clear dist/Relay.app/Contents/MacOS/
+          sed "s/__VERSION__/$version/g" packaging/macos/Info.plist > dist/Relay.app/Contents/Info.plist
+          printf 'APPL????' > dist/Relay.app/Contents/PkgInfo
 
-      - name: Package artifacts (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          mkdir -p dist
-          cp target/release/relay.exe dist/relay-windows.exe
-          cp target/release/relay-cli.exe dist/relay-cli-windows.exe
-          cp target/release/relay-clear.exe dist/relay-clear-windows.exe
+          iconset=dist/Relay.iconset
+          mkdir -p "$iconset"
+          source_icon=packaging/icons/hicolor/512x512/apps/io.github.csemanpeter.Relay.png
+          for entry in "16 16x16" "32 16x16@2x" "32 32x32" "64 32x32@2x" \
+                       "128 128x128" "256 128x128@2x" "256 256x256" \
+                       "512 256x256@2x" "512 512x512" "1024 512x512@2x"; do
+            size=${entry%% *}
+            name=${entry##* }
+            sips -z "$size" "$size" "$source_icon" --out "$iconset/icon_${name}.png" >/dev/null
+          done
+          iconutil -c icns "$iconset" -o dist/Relay.app/Contents/Resources/Relay.icns
+          codesign --force --deep --sign - dist/Relay.app
+
           cp LICENSE README.md dist/
-          7z a relay-windows.zip dist/*
-          sha256sum relay-windows.zip > relay-windows.zip.sha256
+          tar -C dist -czf dist/release/relay-macos-universal.tar.gz \
+            Relay.app relay relay-cli relay-clear README.md LICENSE
+
+          mkdir -p dist/dmg/CLI
+          cp -R dist/Relay.app dist/dmg/
+          cp dist/relay-cli dist/relay-clear dist/dmg/CLI/
+          cp dist/README.md dist/LICENSE dist/dmg/CLI/
+          ln -s /Applications dist/dmg/Applications
+          hdiutil create -volname "Relay" -srcfolder dist/dmg -ov -format UDZO \
+            "dist/release/Relay-${version}-macos-universal.dmg"
+          cd dist/release
+          shasum -a 256 relay-macos-universal.tar.gz "Relay-${version}-macos-universal.dmg" > SHA256SUMS-macos
+
+      - name: Package installer and ZIP (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force dist\release | Out-Null
+          Copy-Item target\release\relay.exe dist\relay.exe
+          Copy-Item target\release\relay-cli.exe dist\relay-cli.exe
+          Copy-Item target\release\relay-clear.exe dist\relay-clear.exe
+          Copy-Item LICENSE, README.md dist\
+          Compress-Archive -Force -Path dist\relay.exe, dist\relay-cli.exe, dist\relay-clear.exe, dist\README.md, dist\LICENSE -DestinationPath dist\release\relay-windows-x64.zip
+
+          choco install innosetup --no-progress -y
+          $env:RELAY_VERSION = "${{ steps.version.outputs.version }}"
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" packaging\windows\relay.iss
+
+          $lines = Get-ChildItem dist\release\* -Include *.zip, *.exe | Sort-Object Name | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          }
+          $lines | Set-Content dist\release\SHA256SUMS-windows -Encoding ascii
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: relay-${{ runner.os }}-${{ runner.arch }}
-          path: |
-            dist/*
-            *.sha256
+          name: relay-${{ matrix.name }}
+          if-no-files-found: error
+          path: dist/release/*
 
   release:
     name: Create GitHub Release
@@ -107,4 +184,4 @@ jobs:
         with:
           generate_release_notes: true
           files: |
-            artifacts/**/*
+            artifacts/*

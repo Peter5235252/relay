@@ -26,6 +26,7 @@ mod content;
 mod conversation;
 mod error;
 mod model;
+pub mod platform;
 mod preset;
 mod prompt;
 mod settings;
@@ -38,6 +39,7 @@ pub use error::{CoreError, Result};
 pub use model::{
     DEFAULT_MODEL_SLUG, ModelSelection, ModelSpec, Provider, ReasoningKind, find_model, models,
 };
+pub use platform::{ShellFlavor, default_shell, shell_command, shell_flavor, shell_instructions};
 pub use preset::{
     BASE_SYSTEM_PROMPT, PersonalityPreset, builtin_presets, compose_system_prompt,
     find_builtin_preset,

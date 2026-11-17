@@ -90,8 +90,33 @@ impl BundledVariant {
 pub const DEFAULT_VARIANT: BundledVariant = BundledVariant::Standard;
 pub const PORT: u16 = 11435;
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 const LLAMA_ARCHIVE: &str = "llama-b12383-bin-ubuntu-vulkan-x64.tar.gz";
-const LLAMA_URL: &str = "https://github.com/ggml-org/llama.cpp/releases/download/b12383/llama-b12383-bin-ubuntu-vulkan-x64.tar.gz";
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+const LLAMA_ARCHIVE: &str = "llama-b12383-bin-ubuntu-arm64.tar.gz";
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+const LLAMA_ARCHIVE: &str = "llama-b12383-bin-macos-arm64.tar.gz";
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+const LLAMA_ARCHIVE: &str = "llama-b12383-bin-macos-x64.tar.gz";
+#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+const LLAMA_ARCHIVE: &str = "llama-b12383-bin-win-vulkan-x64.zip";
+#[cfg(all(target_os = "windows", target_arch = "aarch64"))]
+const LLAMA_ARCHIVE: &str = "llama-b12383-bin-win-cpu-arm64.zip";
+#[cfg(not(any(
+    all(target_os = "linux", target_arch = "x86_64"),
+    all(target_os = "linux", target_arch = "aarch64"),
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "macos", target_arch = "x86_64"),
+    all(target_os = "windows", target_arch = "x86_64"),
+    all(target_os = "windows", target_arch = "aarch64"),
+)))]
+const LLAMA_ARCHIVE: &str = "";
+
+const LLAMA_URL_BASE: &str = "https://github.com/ggml-org/llama.cpp/releases/download/b12383";
+
+fn llama_url() -> String {
+    format!("{LLAMA_URL_BASE}/{LLAMA_ARCHIVE}")
+}
 
 #[derive(Clone, Debug, Default)]
 pub struct BundledStatus {
@@ -231,7 +256,10 @@ async fn download_file(
         downloaded += chunk.len() as u64;
         if let Ok(mut s) = state.lock() {
             if total > 0 {
-                let pct = (downloaded * 100 / total) as u32;
+                let pct = downloaded
+                    .saturating_mul(100)
+                    .checked_div(total)
+                    .unwrap_or(0) as u32;
                 s.status.progress = Some(pct);
                 s.status.message = format!("Downloading {label}… {pct}%");
             } else {
@@ -246,51 +274,62 @@ async fn download_file(
     Ok(())
 }
 
+/// Extract the platform llama.cpp archive into the bundled directory.
+fn extract_llama_archive(archive: &std::path::Path, dest: &std::path::Path) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let file = std::fs::File::open(archive).map_err(|e| e.to_string())?;
+        let mut zip = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
+        zip.extract(dest).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let file = std::fs::File::open(archive).map_err(|e| e.to_string())?;
+        let gz = flate2::read::GzDecoder::new(file);
+        let mut archive = tar::Archive::new(gz);
+        archive.unpack(dest).map_err(|e| e.to_string())
+    }
+}
+
 async fn ensure_llama_server(
     dir: &Path,
     state: &Arc<Mutex<BundledState>>,
 ) -> Result<PathBuf, String> {
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = (dir, state);
-        return Err("Bundled local models are currently supported on Linux only".to_owned());
+    if LLAMA_ARCHIVE.is_empty() {
+        return Err(format!(
+            "Bundled local models are not available for this platform ({}-{}). Configure a local OpenAI-compatible endpoint instead.",
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        ));
     }
-    #[cfg(target_os = "linux")]
-    {
-        if let Some(p) = find_llama_server(dir) {
-            return Ok(p);
-        }
-        let ldir = llama_dir(dir);
-        std::fs::create_dir_all(&ldir).map_err(|e| e.to_string())?;
-        let archive_path = dir.join(LLAMA_ARCHIVE);
-        if !archive_path.exists() {
-            download_file(LLAMA_URL, &archive_path, state, "llama-server").await?;
-        }
-        if let Ok(mut s) = state.lock() {
-            s.status.message = "Extracting llama-server…".to_owned();
-            s.status.progress = None;
-        }
-        let archive_path2 = archive_path.clone();
-        let ldir2 = ldir.clone();
-        tokio::task::spawn_blocking(move || {
-            let f = std::fs::File::open(&archive_path2).map_err(|e| e.to_string())?;
-            let gz = flate2::read::GzDecoder::new(f);
-            let mut ar = tar::Archive::new(gz);
-            ar.unpack(&ldir2).map_err(|e| e.to_string())?;
-            Ok::<(), String>(())
-        })
+    if let Some(p) = find_llama_server(dir) {
+        return Ok(p);
+    }
+    let ldir = llama_dir(dir);
+    std::fs::create_dir_all(&ldir).map_err(|e| e.to_string())?;
+    let archive_path = dir.join(LLAMA_ARCHIVE);
+    if !archive_path.exists() {
+        download_file(&llama_url(), &archive_path, state, "llama-server").await?;
+    }
+    if let Ok(mut s) = state.lock() {
+        s.status.message = "Extracting llama-server…".to_owned();
+        s.status.progress = None;
+    }
+    let archive_path2 = archive_path.clone();
+    let ldir2 = ldir.clone();
+    tokio::task::spawn_blocking(move || extract_llama_archive(&archive_path2, &ldir2))
         .await
         .map_err(|e| e.to_string())??;
-        if let Some(p) = find_llama_server(dir) {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ = std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755));
-            }
-            return Ok(p);
+    if let Some(p) = find_llama_server(dir) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755));
         }
-        Err("llama-server not found after extraction".to_owned())
+        return Ok(p);
     }
+    Err("llama-server not found after extraction".to_owned())
 }
 
 async fn wait_for_server(port: u16) -> bool {
@@ -397,6 +436,13 @@ pub async fn ensure_ready(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+    // Keep the helper completely invisible: no console window flash on Windows.
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt as _;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
     match cmd.spawn() {
         Ok(child) => {
             if let Ok(mut s) = state.lock() {

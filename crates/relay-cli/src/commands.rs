@@ -1624,18 +1624,11 @@ async fn web(query: &str, json: bool) -> Result<(), String> {
 }
 
 fn shell() -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    let shell = std::env::var("COMSPEC").unwrap_or_else(|_| "powershell.exe".to_owned());
-    #[cfg(not(target_os = "windows"))]
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| {
-        if cfg!(target_os = "macos") {
-            "/bin/zsh".to_owned()
-        } else {
-            "/bin/sh".to_owned()
-        }
-    });
+    let shell = relay_core::default_shell();
+    let flavor = relay_core::shell_flavor(&shell);
     eprintln!("Opening {shell}. Type `exit` to return to Relay CLI.");
     let status = ProcessCommand::new(&shell)
+        .args(flavor.interactive_args())
         .env("RELAY_CLI", "1")
         .status()
         .map_err(|error| format!("could not start {shell}: {error}"))?;
@@ -1829,6 +1822,7 @@ pub fn completions(shell: &str) -> String {
     match shell.to_ascii_lowercase().as_str() {
         "zsh" => ZSH_COMPLETIONS.to_owned(),
         "fish" => FISH_COMPLETIONS.to_owned(),
+        "powershell" | "pwsh" => POWERSHELL_COMPLETIONS.to_owned(),
         _ => BASH_COMPLETIONS.to_owned(),
     }
 }
@@ -1845,7 +1839,7 @@ _relay_cli() {
     fi
     case "${COMP_WORDS[1]}" in
         completions|completion)
-            COMPREPLY=( $(compgen -W "bash zsh fish" -- "$cur") )
+            COMPREPLY=( $(compgen -W "bash zsh fish powershell" -- "$cur") )
             ;;
     esac
     return 0
@@ -1873,5 +1867,30 @@ compdef _relay_cli relay-cli
 const FISH_COMPLETIONS: &str = r#"
 complete -c relay-cli -f
 complete -c relay-cli -n '__fish_use_subcommand' -a 'chat models settings status version completions'
-complete -c relay-cli -n '__fish_seen_subcommand_from completions' -a 'bash zsh fish'
+complete -c relay-cli -n '__fish_seen_subcommand_from completions' -a 'bash zsh fish powershell'
+"#;
+
+const POWERSHELL_COMPLETIONS: &str = r#"
+Register-ArgumentCompleter -Native -CommandName relay-cli -ScriptBlock {
+    param($wordToComplete, $commandAst, $cursorPosition)
+    $commands = @(
+        'chat', 'ask', 'prompt', 'sessions', 'conversations', 'history', 'models',
+        'model', 'settings', 'config', 'keys', 'key', 'presets', 'preset',
+        'memory', 'memories', 'mcp', 'bundled', 'nemotron', 'ollama', 'web',
+        'search', 'fetch', 'url', 'shell', 'terminal', 'clear', 'cls', 'status',
+        'about', 'help', 'version', 'completions', 'completion'
+    )
+    $tokens = $commandAst.CommandElements
+    if ($tokens.Count -le 2) {
+        $commands | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+            [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+        }
+    } elseif ($tokens[1].Value -in @('completions', 'completion')) {
+        @('bash', 'zsh', 'fish', 'powershell') |
+            Where-Object { $_ -like "$wordToComplete*" } |
+            ForEach-Object {
+                [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+            }
+    }
+}
 "#;

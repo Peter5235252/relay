@@ -123,8 +123,10 @@ pub fn prepare_request(
 
     let mut system = compose_system_prompt(preset.as_ref(), &custom)
         .unwrap_or_else(|| relay_core::BASE_SYSTEM_PROMPT.to_owned());
+    system.push_str("\n\n");
+    system.push_str(relay_core::shell_instructions());
     if model.is_local() {
-        system.push_str("\n\nLocal model tool-use rules: Use the provided function/tool calls exactly as specified—do not invent tool call syntax in plain text. Before claiming a file was created/changed, ensure a write tool call succeeded; before claiming contents, ensure read/list tool results show them. For Desktop on localized systems (e.g. Hungarian 'Asztal'), locate it via $HOME (e.g. run_command: echo $HOME, then list_dir) rather than guessing paths. If unsure, inspect first, then act, then verify with a tool.");
+        system.push_str("\n\nLocal model tool-use rules: Use the provided function/tool calls exactly as specified—do not invent tool call syntax in plain text. Before claiming a file was created/changed, ensure a write tool call succeeded; before claiming contents, ensure read/list tool results show them. For Desktop on localized systems (e.g. Hungarian 'Asztal'), locate it via the home directory reported by the platform (run `echo $HOME` in a POSIX shell or `echo $env:USERPROFILE` in PowerShell, then list_dir) rather than guessing paths. If unsure, inspect first, then act, then verify with a tool.");
     }
     if settings.interaction_mode == "chat" {
         system.push_str("\n\nYou have access to web_search and fetch_url tools. Use web_search to find current information on the internet; use fetch_url to read a specific page. Never say you cannot access the internet or live data—use these tools instead.");

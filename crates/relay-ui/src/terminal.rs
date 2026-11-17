@@ -3,6 +3,7 @@
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use smol::channel::{Receiver, Sender, unbounded};
 use std::io::{Read, Write};
+use std::time::{Duration, Instant};
 
 const MAX_OUTPUT_BYTES: usize = 256 * 1024;
 
@@ -19,6 +20,9 @@ pub struct ShellSession {
     /// Whether the shell process has exited.
     pub exited: bool,
     shell: String,
+    pid: Option<u32>,
+    cwd: Option<String>,
+    cwd_checked: Option<Instant>,
     writer: Option<Box<dyn Write + Send>>,
     child: Option<Box<dyn portable_pty::Child + Send + Sync>>,
     master: Option<Box<dyn portable_pty::MasterPty + Send>>,
@@ -26,44 +30,36 @@ pub struct ShellSession {
     _events_tx: Sender<ShellEvent>,
 }
 
-fn command_exists(name: &str) -> bool {
-    std::process::Command::new(name)
-        .arg("--version")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
-}
-
-fn default_shell() -> String {
-    #[cfg(target_os = "windows")]
-    {
-        if command_exists("pwsh") {
-            "pwsh".to_owned()
-        } else {
-            "powershell".to_owned()
-        }
-    }
-    #[cfg(target_os = "macos")]
-    {
-        if std::path::Path::new("/bin/zsh").exists() {
-            "/bin/zsh".to_owned()
-        } else {
-            std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_owned())
-        }
-    }
+/// Read a process's working directory without spawning helper programs.
+fn process_cwd(pid: u32) -> Option<std::path::PathBuf> {
     #[cfg(target_os = "linux")]
     {
-        if std::path::Path::new("/bin/bash").exists() {
-            "/bin/bash".to_owned()
-        } else {
-            std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_owned())
-        }
+        std::fs::read_link(format!("/proc/{pid}/cwd")).ok()
     }
-    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
-        std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_owned())
+        use sysinfo::{Pid, ProcessesToUpdate, System};
+        let pid = Pid::from_u32(pid);
+        let mut system = System::new();
+        let _ = system.refresh_processes(ProcessesToUpdate::Some(&[pid]));
+        system.process(pid)?.cwd().map(|path| path.to_path_buf())
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    {
+        let _ = pid;
+        None
+    }
+}
+
+/// Abbreviate an absolute path with `~` for the user's home directory.
+fn abbreviate_home(path: &std::path::Path) -> String {
+    let Some(home) = relay_core::platform::home_dir() else {
+        return path.display().to_string();
+    };
+    match path.strip_prefix(&home) {
+        Ok(rest) if rest.as_os_str().is_empty() => "~".to_owned(),
+        Ok(rest) => format!("~{}{}", std::path::MAIN_SEPARATOR, rest.display()),
+        Err(_) => path.display().to_string(),
     }
 }
 
@@ -162,27 +158,24 @@ impl ShellSession {
             })
             .map_err(|e| e.to_string())?;
 
-        let shell = default_shell();
+        let shell = relay_core::default_shell();
+        let flavor = relay_core::shell_flavor(&shell);
         let mut cmd = CommandBuilder::new(&shell);
-        if shell.ends_with("bash") || shell.ends_with("zsh") {
-            cmd.arg("-i");
+        for arg in flavor.interactive_args() {
+            cmd.arg(arg);
         }
-        #[cfg(target_os = "windows")]
-        {
-            cmd.arg("-NoLogo");
+        if flavor == relay_core::ShellFlavor::Posix {
+            cmd.env("TERM", "xterm-256color");
+            cmd.env("COLORTERM", "truecolor");
         }
-        cmd.env("TERM", "xterm-256color");
-        cmd.env("COLORTERM", "truecolor");
-        let home = std::env::var("HOME")
-            .or_else(|_| std::env::var("USERPROFILE"))
-            .ok();
-        if let Some(home) = home {
+        if let Some(home) = relay_core::platform::home_dir() {
             cmd.cwd(home);
         } else if let Ok(cwd) = std::env::current_dir() {
             cmd.cwd(cwd);
         }
 
         let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
+        let pid = child.process_id();
         drop(pair.slave);
 
         let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
@@ -214,6 +207,9 @@ impl ShellSession {
             output: String::new(),
             exited: false,
             shell,
+            pid,
+            cwd: None,
+            cwd_checked: None,
             writer: Some(writer),
             child: Some(child),
             master: Some(pair.master),
@@ -235,25 +231,29 @@ impl ShellSession {
         if self.exited {
             return None;
         }
-        #[cfg(not(unix))]
-        {
-            return None;
+        self.cwd.clone()
+    }
+
+    /// Refresh the cached working directory at most once per second.
+    fn refresh_cwd(&mut self) {
+        if self.exited {
+            return;
         }
-        #[cfg(unix)]
+        let now = Instant::now();
+        if self
+            .cwd_checked
+            .is_some_and(|last| now.duration_since(last) < Duration::from_millis(900))
         {
-            let pid = self.child.as_ref()?.process_id()?;
-            let path = std::fs::read_link(format!("/proc/{pid}/cwd")).ok()?;
-            let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
-            let label = match home {
-                Some(home) => match path.strip_prefix(&home) {
-                    Ok(rest) if rest.as_os_str().is_empty() => "~".to_owned(),
-                    Ok(rest) => format!("~/{}", rest.display()),
-                    Err(_) => path.display().to_string(),
-                },
-                None => path.display().to_string(),
-            };
-            Some(label)
+            return;
         }
+        self.cwd_checked = Some(now);
+        let Some(pid) = self.pid else {
+            return;
+        };
+        let Some(path) = process_cwd(pid) else {
+            return;
+        };
+        self.cwd = Some(abbreviate_home(&path));
     }
 
     pub fn write(&mut self, data: &str) -> Result<(), String> {
@@ -279,6 +279,7 @@ impl ShellSession {
             }
             self.output.drain(..trim_at.min(self.output.len()));
         }
+        self.refresh_cwd();
     }
 
     pub fn clear(&mut self) {

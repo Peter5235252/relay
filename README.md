@@ -30,12 +30,32 @@ characters. Keep that value secret: it unlocks the local database.
 
 ## Installation
 
-### Prebuilt (Linux x86_64)
+Relay ships prebuilt binaries for Linux, macOS, and Windows from
+[GitHub Releases](https://github.com/Peter5235252/relay/releases).
 
-Download `relay-linux-x86_64.tar.gz` from the
-[latest release](https://github.com/Peter5235252/relay/releases), extract it and
-run `./relay`. The archive also contains `relay-cli`, `relay-clear`, the
-`.desktop` entry and icons for a system-wide install.
+### Linux (x86_64)
+
+Download `relay-linux-x86_64.tar.gz`, extract it, and run `./relay-linux-x86_64`.
+The archive also contains `relay-cli`, `relay-clear`, the `.desktop` entry, and
+icons for a system-wide install.
+
+### macOS (Apple Silicon and Intel)
+
+Download `Relay-<version>-macos-universal.dmg`, open it, and drag `Relay` into
+`Applications`. The DMG also includes `relay-cli` and `relay-clear` in its
+`CLI` folder. The app is a universal binary, ad-hoc signed for both
+architectures; on first launch, right-click `Relay` and choose **Open** to get
+past Gatekeeper's unidentified-developer warning.
+
+The `.tar.gz` archive is available for scripted installs: it contains
+`Relay.app` plus standalone `relay`, `relay-cli`, and `relay-clear` binaries.
+
+### Windows (x64, Windows 10 1809+)
+
+Download `relay-setup-windows-x64.exe` and run the installer, or use
+`relay-windows-x64.zip` for a portable copy. The installer adds Start Menu
+shortcuts and can put `relay-cli` on your `PATH`. SmartScreen may warn about an
+unknown publisher; choose **More info → Run anyway**.
 
 ### Arch (AUR-style, from source)
 
@@ -44,7 +64,7 @@ cd packaging/aur
 makepkg -si
 ```
 
-### Local install from a checkout
+### Local install from a checkout (Linux)
 
 ```sh
 cargo build -p relay-ui -p relay-cli --release
@@ -91,7 +111,22 @@ relay-cli models
 lists every flag, and `/help` inside the interactive client lists slash
 commands such as `/temperature`, `/max-output`, and `/instructions`.
 
-Linux builds are available now; macOS and Windows builds are actively being developed.
+## Platform support
+
+| Platform | Desktop app | CLI | Integrated terminal | Bundled local models |
+| --- | --- | --- | --- | --- |
+| Linux x86_64 | ✅ | ✅ | bash/zsh | ✅ (Vulkan) |
+| Linux arm64 | ✅ | ✅ | bash/zsh | ✅ (CPU) |
+| macOS arm64 + x86_64 | ✅ | ✅ | zsh | ✅ (Metal) |
+| Windows x64 | ✅ | ✅ | PowerShell / pwsh | ✅ (Vulkan) |
+| Windows arm64 | ✅ | ✅ | PowerShell / pwsh | ✅ (CPU) |
+
+On Windows the desktop terminal, `relay-cli shell`, and the model's
+`run_command` tool all use PowerShell (`pwsh` when installed, otherwise
+Windows PowerShell). On macOS they use zsh. Linux uses bash or the login shell.
+Set `RELAY_SHELL` to override the interactive shell.
+
+Linux, macOS, and Windows binaries are built and tested by GitHub Actions.
 
 ## License
 

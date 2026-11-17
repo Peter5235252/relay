@@ -1,10 +1,11 @@
 //! OS keyring access with environment-variable fallback.
 //!
 //! Relay never writes API keys to SQLite. Keys live sealed with
-//! ChaCha20-Poly1305 in the desktop keyring (Secret Service on Linux) and are
-//! decrypted only when a request is sent or the settings screen asks for a
-//! status badge. Plaintext entries written by older Relay versions are
-//! re-sealed the first time they are read.
+//! ChaCha20-Poly1305 in the desktop keyring (Secret Service on Linux, Keychain
+//! on macOS, Credential Manager on Windows) and are decrypted only when a
+//! request is sent or the settings screen asks for a status badge. Plaintext
+//! entries written by older Relay versions are re-sealed the first time they
+//! are read.
 
 use keyring::Entry;
 use relay_core::Provider;

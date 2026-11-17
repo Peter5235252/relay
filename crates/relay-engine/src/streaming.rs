@@ -11,7 +11,6 @@ use relay_core::{
 };
 use relay_providers::{ChatRequest, ProviderClient, StreamEvent};
 use smol::channel::{Receiver, unbounded};
-use std::process::Command;
 use tokio::runtime::Handle;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
@@ -103,7 +102,7 @@ async fn run_local_tool(call: &ToolCall, mode: AgentMode) -> String {
             if cmd.is_empty() {
                 return "error: missing command".to_owned();
             }
-            let out = Command::new("sh").arg("-c").arg(cmd).output();
+            let out = relay_core::shell_command(&relay_core::default_shell(), cmd).output();
             match out {
                 Ok(o) => format!(
                     "exit={}\nstdout:\n{}\nstderr:\n{}",

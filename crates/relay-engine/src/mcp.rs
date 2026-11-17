@@ -43,7 +43,11 @@ pub struct McpServer {
 
 impl McpServer {
     pub fn start(config: &McpServerConfig) -> Result<Arc<Self>, String> {
-        let mut cmd = Command::new(&config.command);
+        // Honor PATHEXT on Windows so commands like `npx` and `uvx` resolve to
+        // their .cmd/.bat shims instead of failing with "not found".
+        let program = relay_core::platform::resolve_program(&config.command)
+            .unwrap_or_else(|| std::path::PathBuf::from(&config.command));
+        let mut cmd = Command::new(&program);
         cmd.args(&config.args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -71,7 +75,7 @@ impl McpServer {
         let pending = server.pending.clone();
         std::thread::spawn(move || {
             let reader = BufReader::new(stdout);
-            for line in reader.lines().flatten() {
+            for line in reader.lines().map_while(Result::ok) {
                 let line = line.trim().to_owned();
                 if line.is_empty() {
                     continue;

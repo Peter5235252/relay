@@ -354,11 +354,7 @@ impl RelayApp {
                         Button::new(SharedString::from(format!("pin-{}", summary.id)))
                             .ghost()
                             .xsmall()
-                            .icon(Icon::new(if summary.pinned {
-                                IconName::Pin
-                            } else {
-                                IconName::Pin
-                            }))
+                            .icon(Icon::new(IconName::Pin))
                             .tooltip(if summary.pinned { "Unpin" } else { "Pin" })
                             .on_click(cx.listener({
                                 let id = summary.id.clone();

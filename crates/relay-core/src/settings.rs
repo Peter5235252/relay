@@ -322,12 +322,7 @@ impl AppSettings {
         if self.bundled_model_variant.is_empty() {
             self.bundled_model_variant = "Nemotron-3.5-Bolt-E4B-Q4_K_M".to_owned();
         }
-        if self.bundled_context_size < 512 {
-            self.bundled_context_size = 512;
-        }
-        if self.bundled_context_size > 32768 {
-            self.bundled_context_size = 32768;
-        }
+        self.bundled_context_size = self.bundled_context_size.clamp(512, 32768);
         if self.interaction_mode != "chat" && self.interaction_mode != "work" {
             self.interaction_mode = "work".to_owned();
         }

@@ -1,5 +1,9 @@
 //! Relay desktop application.
 
+// Release builds are windowed apps on Windows: no console window appears when
+// the user launches Relay from Explorer or the Start Menu.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod app;
 mod bundled;
 mod chat;

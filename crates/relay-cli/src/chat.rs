@@ -92,7 +92,7 @@ pub async fn run_chat(ctx: &mut CliContext, options: ChatOptions) -> Result<(), 
     let mut session = open_session(ctx, &options, false)?;
     session.show_thinking = show_thinking;
     session.yes = options.yes;
-    print_banner(ctx, &session);
+    print_banner(&session);
     if !session.messages.is_empty() {
         let start = session.messages.len().saturating_sub(10);
         print!(
@@ -106,11 +106,7 @@ pub async fn run_chat(ctx: &mut CliContext, options: ChatOptions) -> Result<(), 
     }
     spawn_auto_summary(ctx);
 
-    loop {
-        let prompt = match read_input("You ❯ ")? {
-            Some(prompt) => prompt,
-            None => break,
-        };
+    while let Some(prompt) = read_input("You ❯ ")? {
         let prompt = prompt.trim();
         if prompt.is_empty() {
             continue;
@@ -313,7 +309,7 @@ fn session_from_summary(
     })
 }
 
-fn print_banner(ctx: &CliContext, session: &ChatSession) {
+fn print_banner(session: &ChatSession) {
     let model = agent::resolve_model(&session.model_slug);
     println!(
         "{} {}",
@@ -698,7 +694,7 @@ async fn run_slash(
         "help" | "?" => print!("{}", crate::args::chat_help()),
         "clear" | "cls" => {
             output::clear_screen();
-            print_banner(ctx, session);
+            print_banner(session);
         }
         "image" | "attach" => {
             if rest.is_empty() {
@@ -712,7 +708,7 @@ async fn run_slash(
                 Err(error) => return Err(error),
             }
         }
-        "info" | "details" | "status" => {
+        "info" | "details" => {
             let model = agent::resolve_model(&session.model_slug);
             let window = agent::context_window(&ctx.settings, &model);
             println!("{}", output::bold("Relay details"));

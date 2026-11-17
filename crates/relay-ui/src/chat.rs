@@ -1113,12 +1113,12 @@ impl RelayApp {
                                     .as_ref()
                                     .map(|t| t.output.clone())
                                     .unwrap_or_default();
-                                let shell = self
-                                    .chat
-                                    .terminal
-                                    .as_ref()
-                                    .map(|t| t.shell_name().to_owned())
-                                    .unwrap_or_else(|| "bash".to_owned());
+                let shell = self
+                    .chat
+                    .terminal
+                    .as_ref()
+                    .map(|t| t.shell_name().to_owned())
+                    .unwrap_or_else(|| relay_core::platform::default_shell_name().to_owned());
                                 let cwd = self
                                     .chat
                                     .terminal
@@ -1361,7 +1361,6 @@ impl RelayApp {
                                             .iter()
                                             .cloned()
                                             .enumerate()
-                                            .map(|(index, block)| (index, block))
                                             .collect();
                                         let thumbs: Vec<_> = staged
                                             .into_iter()

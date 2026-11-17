@@ -137,34 +137,62 @@ pub fn token_limit(count: u32) -> String {
     }
 }
 
+fn copy_with(program: &str, args: &[&str], text: &str) -> bool {
+    let mut child = match Command::new(program)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(_) => return false,
+    };
+    let wrote = match child.stdin.take() {
+        Some(mut stdin) => stdin.write_all(text.as_bytes()).is_ok(),
+        None => false,
+    };
+    matches!(child.wait(), Ok(status) if wrote && status.success())
+}
+
 /// Copy text to the system clipboard through a native helper.
 pub fn copy_to_clipboard(text: &str) -> Result<(), String> {
-    let candidates: [(&str, &[&str]); 3] = [
-        ("wl-copy", &[]),
-        ("xclip", &["-selection", "clipboard"]),
-        ("xsel", &["--clipboard", "--input"]),
-    ];
-    for (program, args) in candidates {
-        let mut child = match Command::new(program)
-            .args(args)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-        {
-            Ok(child) => child,
-            Err(_) => continue,
-        };
-        let wrote = match child.stdin.take() {
-            Some(mut stdin) => stdin.write_all(text.as_bytes()).is_ok(),
-            None => false,
-        };
-        let status = child.wait().map_err(|error| error.to_string())?;
-        if wrote && status.success() {
+    #[cfg(target_os = "macos")]
+    {
+        if copy_with("pbcopy", &[], text) {
             return Ok(());
         }
+        Err("pbcopy could not copy to the clipboard".to_owned())
     }
-    Err("no clipboard tool found; install wl-clipboard, xclip, or xsel".to_owned())
+    #[cfg(target_os = "windows")]
+    {
+        let shell = relay_core::platform::resolve_program("pwsh")
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "powershell.exe".to_owned());
+        let script = "Set-Clipboard -Value ([Console]::In.ReadToEnd())";
+        if copy_with(
+            &shell,
+            &["-NoProfile", "-NonInteractive", "-Command", script],
+            text,
+        ) {
+            return Ok(());
+        }
+        Err("PowerShell could not copy to the clipboard".to_owned())
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let candidates: [(&str, &[&str]); 3] = [
+            ("wl-copy", &[]),
+            ("xclip", &["-selection", "clipboard"]),
+            ("xsel", &["--clipboard", "--input"]),
+        ];
+        for (program, args) in candidates {
+            if copy_with(program, args, text) {
+                return Ok(());
+            }
+        }
+        Err("no clipboard tool found; install wl-clipboard, xclip, or xsel".to_owned())
+    }
 }
 
 /// Dim ANSI text when the destination is a terminal.

@@ -67,7 +67,9 @@ pub fn default_data_dir() -> Result<PathBuf> {
     Ok(base.data_dir().join("relay"))
 }
 
-/// Default database location: `~/.local/share/relay/relay.db` on Linux.
+/// Default database location: `~/.local/share/relay/relay.db` on Linux,
+/// `~/Library/Application Support/relay/relay.db` on macOS, and
+/// `%APPDATA%\relay\relay.db` on Windows.
 pub fn default_database_path() -> Result<PathBuf> {
     Ok(default_data_dir()?.join("relay.db"))
 }

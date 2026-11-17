@@ -242,7 +242,15 @@ pub fn parse_from(args: Vec<String>) -> Result<Command, String> {
         },
         "shell" | "terminal" => Ok(Command::Shell),
         "completions" | "completion" => {
-            let shell = rest.first().cloned().unwrap_or_else(|| "bash".to_owned());
+            let shell = rest.first().cloned().unwrap_or_else(|| {
+                if cfg!(windows) {
+                    "powershell".to_owned()
+                } else if cfg!(target_os = "macos") {
+                    "zsh".to_owned()
+                } else {
+                    "bash".to_owned()
+                }
+            });
             Ok(Command::Completions { shell })
         }
         "clear" | "cls" | "relay-clear" => Ok(Command::Clear),

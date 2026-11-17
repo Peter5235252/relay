@@ -20,6 +20,12 @@ fn restrict_umask() {
 fn restrict_umask() {}
 
 fn main() -> ExitCode {
+    #[cfg(windows)]
+    {
+        // Windows 10+ consoles need virtual-terminal processing enabled before
+        // ANSI colors and cursor control render correctly.
+        let _ = enable_ansi_support::enable_ansi_support();
+    }
     let command = match args::parse() {
         Ok(command) => command,
         Err(error) => {

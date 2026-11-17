@@ -23,8 +23,6 @@ relay-providers.workspace = true
 relay-store.workspace = true
 chrono.workspace = true
 rpassword = "7"
-[target.'cfg(unix)'.dependencies]
-rustix = { version = "1.1", features = ["fs", "process"] }
 serde.workspace = true
 serde_json.workspace = true
 syntect = { version = "5.3", default-features = false, features = ["default-fancy"] }
@@ -35,3 +33,9 @@ uuid.workspace = true
 
 [lints]
 workspace = true
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1", features = ["fs", "process"] }
+
+[target.'cfg(windows)'.dependencies]
+enable-ansi-support = "0.3"
