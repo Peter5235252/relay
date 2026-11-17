@@ -91,7 +91,7 @@ relay-cli models
 lists every flag, and `/help` inside the interactive client lists slash
 commands such as `/temperature`, `/max-output`, and `/instructions`.
 
-Linux builds are available now; macOS and Windows builds are actively being considered.
+Linux builds are available now; macOS and Windows builds are actively being developed.
 
 ## License
 
