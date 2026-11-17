@@ -220,10 +220,11 @@ impl ShellSession {
 
     /// Display name of the shell backing this session.
     pub fn shell_name(&self) -> &str {
-        std::path::Path::new(&self.shell)
+        let name = std::path::Path::new(&self.shell)
             .file_name()
             .and_then(|name| name.to_str())
-            .unwrap_or(&self.shell)
+            .unwrap_or(&self.shell);
+        name.strip_suffix(".exe").unwrap_or(name)
     }
 
     /// Current working directory of the shell, abbreviated with `~`.

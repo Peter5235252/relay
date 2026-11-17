@@ -707,8 +707,10 @@ impl RelayApp {
         let cmd = self.chat.terminal_input.read(cx).value().to_string();
         if let Some(t) = self.chat.terminal.as_mut() {
             let mut data = cmd;
-            if !data.ends_with('\n') {
-                data.push('\n');
+            if !data.ends_with('\n') && !data.ends_with('\r') {
+                // ConPTY expects a real Enter keypress (`\r`); POSIX PTYs
+                // translate `\n` through the terminal line discipline.
+                data.push(if cfg!(windows) { '\r' } else { '\n' });
             }
             if let Err(err) = t.write(&data) {
                 t.push_output(&format!("\r\n[write error: {err}]\r\n"));

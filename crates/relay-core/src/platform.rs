@@ -187,9 +187,23 @@ pub fn default_shell() -> String {
 
 /// Build a command that runs `command` in `shell` with native quoting rules.
 pub fn shell_command(shell: &str, command: &str) -> Command {
+    let flavor = shell_flavor(shell);
     let mut cmd = Command::new(shell);
-    cmd.args(shell_flavor(shell).command_args());
-    cmd.arg(command);
+    cmd.args(flavor.command_args());
+    match flavor {
+        ShellFlavor::PowerShell => {
+            // PowerShell decodes redirected output with the console code page
+            // by default, which mangles non-ASCII tool output. Force UTF-8 so
+            // the engine can decode stdout/stderr consistently on Windows.
+            cmd.arg(format!(
+                "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); \
+                 $OutputEncoding = [Console]::OutputEncoding; {command}"
+            ));
+        }
+        _ => {
+            cmd.arg(command);
+        }
+    }
     cmd
 }
 
