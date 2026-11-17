@@ -98,6 +98,10 @@ pub async fn dispatch(command: Command, ctx: &mut CliContext) -> Result<(), Stri
             Ok(())
         }
         Command::Shell => shell(),
+        Command::Completions { shell } => {
+            print!("{}", completions(&shell));
+            Ok(())
+        }
         Command::Clear => {
             output::clear_screen();
             Ok(())
@@ -1810,3 +1814,55 @@ fn about(json: bool) -> Result<(), String> {
     println!("  · Local models and web tools run from your machine.");
     Ok(())
 }
+
+/// Print a shell completion script for the requested shell.
+pub fn completions(shell: &str) -> String {
+    match shell.to_ascii_lowercase().as_str() {
+        "zsh" => ZSH_COMPLETIONS.to_owned(),
+        "fish" => FISH_COMPLETIONS.to_owned(),
+        _ => BASH_COMPLETIONS.to_owned(),
+    }
+}
+
+const BASH_COMPLETIONS: &str = r#"
+_relay_cli() {
+    local cur prev words cword
+    _init_completion || COMPREPLY=()
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    local commands="chat ask prompt sessions conversations history models model settings config keys key presets preset memory memories mcp bundled nemotron ollama web search fetch url shell terminal clear cls status about help version completions completion"
+    if [[ $COMP_CWORD -eq 1 ]]; then
+        COMPREPLY=( $(compgen -W "$commands" -- "$cur") )
+        return 0
+    fi
+    case "${COMP_WORDS[1]}" in
+        completions|completion)
+            COMPREPLY=( $(compgen -W "bash zsh fish" -- "$cur") )
+            ;;
+    esac
+    return 0
+}
+complete -F _relay_cli relay-cli
+"#;
+
+const ZSH_COMPLETIONS: &str = r#"
+#compdef relay-cli
+_relay_cli() {
+    local -a commands
+    commands=(
+        'chat:Open an interactive chat'
+        'models:List models'
+        'settings:Show or set preferences'
+        'status:Show status'
+        'version:Print version'
+        'completions:Print shell completions'
+    )
+    _describe 'command' commands
+}
+compdef _relay_cli relay-cli
+"#;
+
+const FISH_COMPLETIONS: &str = r#"
+complete -c relay-cli -f
+complete -c relay-cli -n '__fish_use_subcommand' -a 'chat models settings status version completions'
+complete -c relay-cli -n '__fish_seen_subcommand_from completions' -a 'bash zsh fish'
+"#;

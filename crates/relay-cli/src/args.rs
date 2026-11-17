@@ -26,6 +26,7 @@ pub enum Command {
     Web { query: String, json: bool },
     Fetch { url: String },
     Shell,
+    Completions { shell: String },
     Clear,
     Status { json: bool },
     About { json: bool },
@@ -240,6 +241,10 @@ pub fn parse_from(args: Vec<String>) -> Result<Command, String> {
             None => Err("Usage: relay-cli fetch <url>".to_owned()),
         },
         "shell" | "terminal" => Ok(Command::Shell),
+        "completions" | "completion" => {
+            let shell = rest.first().cloned().unwrap_or_else(|| "bash".to_owned());
+            Ok(Command::Completions { shell })
+        }
         "clear" | "cls" | "relay-clear" => Ok(Command::Clear),
         "status" => Ok(Command::Status {
             json: has_flag(rest, "--json"),
