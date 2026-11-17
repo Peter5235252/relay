@@ -163,9 +163,13 @@ fn llama_dir(dir: &Path) -> PathBuf {
 }
 
 fn find_llama_server(dir: &Path) -> Option<PathBuf> {
+    #[cfg(target_os = "windows")]
+    let binary = "llama-server.exe";
+    #[cfg(not(target_os = "windows"))]
+    let binary = "llama-server";
     let candidates = [
-        llama_dir(dir).join("llama-server"),
-        llama_dir(dir).join("bin").join("llama-server"),
+        llama_dir(dir).join(binary),
+        llama_dir(dir).join("bin").join(binary),
     ];
     for c in candidates {
         if c.exists() {
@@ -175,8 +179,8 @@ fn find_llama_server(dir: &Path) -> Option<PathBuf> {
     if let Ok(rd) = std::fs::read_dir(llama_dir(dir)) {
         for e in rd.flatten() {
             let p = e.path();
-            let c1 = p.join("llama-server");
-            let c2 = p.join("bin").join("llama-server");
+            let c1 = p.join(binary);
+            let c2 = p.join("bin").join(binary);
             if c1.exists() {
                 return Some(c1);
             }
@@ -185,7 +189,7 @@ fn find_llama_server(dir: &Path) -> Option<PathBuf> {
             }
         }
     }
-    if Command::new("llama-server")
+    if Command::new(binary)
         .arg("--version")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
