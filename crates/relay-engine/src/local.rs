@@ -57,9 +57,22 @@ pub fn is_curated(tag: &str) -> bool {
     curated(tag).is_some()
 }
 
+/// Build an `ollama` command without flashing a console window on Windows.
+fn ollama_command() -> Command {
+    #[allow(unused_mut)]
+    let mut command = Command::new("ollama");
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt as _;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command
+}
+
 /// Model names installed in the local Ollama daemon.
 pub fn installed_ollama_models() -> Vec<String> {
-    let out = Command::new("ollama").arg("list").output();
+    let out = ollama_command().arg("list").output();
     let Ok(out) = out else {
         return Vec::new();
     };
@@ -85,7 +98,7 @@ pub fn installed(tag: &str) -> bool {
 
 /// Run `ollama pull` with live progress on the user's terminal.
 pub fn pull(tag: &str) -> Result<(), String> {
-    let status = Command::new("ollama")
+    let status = ollama_command()
         .arg("pull")
         .arg(tag)
         .status()
@@ -123,7 +136,7 @@ pub async fn ensure_ollama_running(base_url: &str) -> Result<Option<Child>, Stri
     if ollama_reachable(base_url).await {
         return Ok(None);
     }
-    let mut child = match Command::new("ollama")
+    let mut child = match ollama_command()
         .arg("serve")
         .stdin(Stdio::null())
         .stdout(Stdio::null())

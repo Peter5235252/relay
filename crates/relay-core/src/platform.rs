@@ -86,7 +86,7 @@ pub fn shell_flavor(shell: &str) -> ShellFlavor {
         .next()
         .unwrap_or(shell)
         .to_ascii_lowercase();
-    if name == "pwsh" || name == "pwsh.exe" || name.starts_with("powershell") {
+    if name.starts_with("pwsh") || name.starts_with("powershell") {
         ShellFlavor::PowerShell
     } else if name == "cmd" || name == "cmd.exe" {
         ShellFlavor::Cmd
@@ -115,7 +115,14 @@ pub fn resolve_program(name: &str) -> Option<PathBuf> {
         if dir.as_os_str().is_empty() {
             continue;
         }
+        let direct = dir.join(name);
+        if direct.is_file() {
+            return Some(direct);
+        }
         for ext in &extensions {
+            if name.to_ascii_lowercase().ends_with(ext.as_str()) {
+                continue;
+            }
             let candidate = dir.join(format!("{name}{ext}"));
             if candidate.is_file() {
                 return Some(candidate);
@@ -209,27 +216,28 @@ pub fn shell_command(shell: &str, command: &str) -> Command {
 
 /// The user's home directory, honoring the platform's environment variable.
 pub fn home_dir() -> Option<PathBuf> {
-    if let Some(home) = std::env::var_os("HOME")
-        && !home.is_empty()
-    {
-        return Some(PathBuf::from(home));
-    }
     #[cfg(target_os = "windows")]
     {
-        if let Some(profile) = std::env::var_os("USERPROFILE")
-            && !profile.is_empty()
-        {
-            return Some(PathBuf::from(profile));
+        // Prefer the native variables: Git Bash/MSYS may set HOME to a
+        // POSIX-style path (`/c/Users/...`) that Windows APIs cannot use.
+        for key in ["USERPROFILE", "HOME"] {
+            if let Some(value) = std::env::var_os(key)
+                && !value.is_empty()
+            {
+                return Some(PathBuf::from(value));
+            }
         }
         let drive = std::env::var_os("HOMEDRIVE")?;
         let path = std::env::var_os("HOMEPATH")?;
         let mut home = PathBuf::from(drive);
         home.push(path);
-        return Some(home);
+        Some(home)
     }
     #[cfg(not(target_os = "windows"))]
     {
-        None
+        std::env::var_os("HOME")
+            .filter(|home| !home.is_empty())
+            .map(PathBuf::from)
     }
 }
 

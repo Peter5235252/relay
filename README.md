@@ -49,6 +49,8 @@ past Gatekeeper's unidentified-developer warning.
 
 The `.tar.gz` archive is available for scripted installs: it contains
 `Relay.app` plus standalone `relay`, `relay-cli`, and `relay-clear` binaries.
+The CLI binaries are ad-hoc signed. If macOS quarantines a downloaded copy,
+clear the flag once with `xattr -dr com.apple.quarantine Relay.app relay-cli relay-clear`.
 
 ### Windows (x64, Windows 10 1809+)
 

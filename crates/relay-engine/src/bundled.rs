@@ -214,13 +214,18 @@ fn find_llama_server(dir: &Path) -> Option<PathBuf> {
             }
         }
     }
-    if Command::new(binary)
+    let mut probe = Command::new(binary);
+    probe
         .arg("--version")
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok()
+        .stderr(Stdio::null());
+    #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt as _;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        probe.creation_flags(CREATE_NO_WINDOW);
+    }
+    if probe.status().is_ok() {
         return Some(PathBuf::from("llama-server"));
     }
     None

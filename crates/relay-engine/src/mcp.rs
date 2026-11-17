@@ -52,6 +52,12 @@ impl McpServer {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt as _;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
         for kv in &config.env {
             if let Some((k, v)) = kv.split_once('=') {
                 cmd.env(k, v);

@@ -38,10 +38,11 @@ fn process_cwd(pid: u32) -> Option<std::path::PathBuf> {
     }
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
-        use sysinfo::{Pid, ProcessesToUpdate, System};
+        use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
         let pid = Pid::from_u32(pid);
         let mut system = System::new();
-        let _ = system.refresh_processes(ProcessesToUpdate::Some(&[pid]));
+        let refresh = ProcessRefreshKind::new().with_cwd(UpdateKind::Always);
+        let _ = system.refresh_processes_specifics(ProcessesToUpdate::Some(&[pid]), refresh);
         system.process(pid)?.cwd().map(|path| path.to_path_buf())
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]

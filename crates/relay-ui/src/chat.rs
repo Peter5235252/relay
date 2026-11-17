@@ -197,10 +197,7 @@ impl RelayApp {
                                                 .on_click(cx.listener(move |this, _, _, cx| {
                                                     let t = tag.clone();
                                                     this.runtime.spawn(async move {
-                                                        let _ = std::process::Command::new("ollama")
-                                                            .arg("pull")
-                                                            .arg(&t)
-                                                            .status();
+                                                        let _ = relay_engine::local::pull(&t);
                                                     });
                                                     this.pending_ollama_install = None;
                                                     cx.notify();

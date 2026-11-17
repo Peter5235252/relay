@@ -64,9 +64,6 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,Relay}"; Flag
 [Registry]
 Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}"; Tasks: addtopath; Check: NeedsAddPath(ExpandConstant('{app}'))
 
-[UninstallDelete]
-Type: filesandordirs; Name: "{app}"
-
 [Code]
 function NeedsAddPath(Param: string): boolean;
 var
