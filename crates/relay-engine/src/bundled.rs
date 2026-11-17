@@ -246,6 +246,13 @@ async fn ensure_llama_server(
     dir: &Path,
     state: &Arc<Mutex<BundledState>>,
 ) -> Result<PathBuf, String> {
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (dir, state);
+        return Err("Bundled local models are currently supported on Linux only".to_owned());
+    }
+    #[cfg(target_os = "linux")]
+    {
     if let Some(p) = find_llama_server(dir) {
         return Ok(p);
     }
@@ -279,6 +286,7 @@ async fn ensure_llama_server(
         return Ok(p);
     }
     Err("llama-server not found after extraction".to_owned())
+    }
 }
 
 async fn wait_for_server(port: u16) -> bool {

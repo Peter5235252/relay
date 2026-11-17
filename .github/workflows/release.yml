@@ -10,51 +10,43 @@ permissions:
   contents: write
 
 jobs:
-  build-linux:
-    name: Build Linux release
-    runs-on: ubuntu-24.04
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14, windows-2022]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install system dependencies
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential \
-            pkg-config \
-            cmake \
-            clang \
-            libssl-dev \
-            libfontconfig1-dev \
-            libfreetype6-dev \
-            libx11-dev \
-            libx11-xcb-dev \
-            libxcb1-dev \
-            libxcb-render0-dev \
-            libxcb-shape0-dev \
-            libxcb-xfixes0-dev \
-            libxkbcommon-dev \
-            libxkbcommon-x11-dev \
-            libwayland-dev \
-            libegl1-mesa-dev \
-            libvulkan-dev \
-            libasound2-dev \
-            libglib2.0-dev \
-            libgtk-3-dev
+            build-essential pkg-config cmake clang \
+            libssl-dev libfontconfig1-dev libfreetype6-dev \
+            libx11-dev libx11-xcb-dev libxcb1-dev \
+            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
+            libegl1-mesa-dev libvulkan-dev libasound2-dev \
+            libglib2.0-dev libgtk-3-dev
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.90"
+          toolchain: "1.100.0"
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Build release binary
-        run: cargo build --release -p relay-ui -p relay-cli --locked
+      - name: Build release binaries
+        run: cargo build --release --locked -p relay-ui -p relay-cli
 
-      - name: Package artifacts
+      - name: Package artifacts (Linux)
+        if: runner.os == 'Linux'
         run: |
           mkdir -p dist
           cp target/release/relay dist/relay-linux-x86_64
@@ -67,19 +59,52 @@ jobs:
           tar -C dist -czf relay-linux-x86_64.tar.gz .
           sha256sum relay-linux-x86_64.tar.gz > relay-linux-x86_64.tar.gz.sha256
 
+      - name: Package artifacts (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p dist
+          cp target/release/relay dist/relay-macos
+          cp target/release/relay-cli dist/relay-cli-macos
+          cp target/release/relay-clear dist/relay-clear-macos
+          chmod +x dist/relay-macos dist/relay-cli-macos dist/relay-clear-macos
+          cp LICENSE README.md dist/
+          tar -C dist -czf relay-macos.tar.gz .
+          shasum -a 256 relay-macos.tar.gz > relay-macos.tar.gz.sha256
+
+      - name: Package artifacts (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          mkdir -p dist
+          cp target/release/relay.exe dist/relay-windows.exe
+          cp target/release/relay-cli.exe dist/relay-cli-windows.exe
+          cp target/release/relay-clear.exe dist/relay-clear-windows.exe
+          cp LICENSE README.md dist/
+          7z a relay-windows.zip dist/*
+          sha256sum relay-windows.zip > relay-windows.zip.sha256
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: relay-linux-x86_64
+          name: relay-${{ runner.os }}-${{ runner.arch }}
           path: |
-            relay-linux-x86_64.tar.gz
-            relay-linux-x86_64.tar.gz.sha256
+            dist/*
+            *.sha256
 
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-24.04
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
           files: |
-            relay-linux-x86_64.tar.gz
-            relay-linux-x86_64.tar.gz.sha256
+            artifacts/**/*
