@@ -1461,7 +1461,7 @@ impl SettingsView {
                     .child(
                         provider_note(
                             "OpenAI GPT",
-                            "GPT-6.2 Astra · GPT-6.2 Sol and Terra · GPT-6 Luna",
+                            "GPT-6.2 Astra · GPT-6.2 Sol · GPT-6.1 Terra · GPT-6 Luna",
                             "API data is not used to train or improve OpenAI models unless you \
                              explicitly opt in (since March 1, 2023). Abuse-monitoring logs are \
                              kept for up to 30 days, longer only when legally required; approved \
