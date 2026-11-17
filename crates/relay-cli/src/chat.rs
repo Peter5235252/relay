@@ -315,72 +315,22 @@ fn session_from_summary(
 
 fn print_banner(ctx: &CliContext, session: &ChatSession) {
     let model = agent::resolve_model(&session.model_slug);
-    let window = agent::context_window(&ctx.settings, &model);
     println!(
         "{} {}",
         output::bold("Relay"),
-        output::dim(&format!("CLI {}", env!("CARGO_PKG_VERSION")))
-    );
-    println!(
-        "{} · {} context",
-        output::bold(&model.name),
-        format_tokens_exact(u64::from(window))
-    );
-    let reasoning = if model.reasoning == ReasoningKind::None {
-        "reasoning not supported".to_owned()
-    } else {
-        format!(
-            "reasoning {}",
-            agent::effective_reasoning(&ctx.settings, &model).label()
-        )
-    };
-    println!(
-        "{}",
-        output::dim(&format!(
-            "{} · {} · {} · approval {}",
-            if ctx.settings.interaction_mode == "chat" {
-                "Chat"
-            } else {
-                "Work"
-            },
-            ctx.settings.agent_mode.label(),
-            reasoning,
-            ctx.settings.tool_approval.label()
-        ))
-    );
-    println!(
-        "{}",
-        output::dim(&format!(
-            "temp {:.2} · output {} · preset {}",
-            ctx.settings.temperature,
-            output::token_limit(ctx.settings.max_output_tokens),
-            ctx.settings.active_preset_id,
-        ))
+        output::dim(&format!("· {}", model.name))
     );
     match &session.conversation_id {
         Some(id) => println!(
             "{}",
             output::dim(&format!(
-                "Session {} · “{}” · {} messages",
+                "session {} · {} messages · /help for details",
                 output::short_id(id),
-                session.title,
                 session.messages.len()
             ))
         ),
-        None => println!(
-            "{}",
-            output::dim("New conversation · the first message creates it")
-        ),
+        None => println!("{}", output::dim("new conversation · /help for details")),
     }
-    println!();
-    println!(
-        "{}",
-        output::dim("Type a message and press Enter, or /help for commands.")
-    );
-    println!(
-        "{}",
-        output::dim("/clear tidies the screen · /quit exits · Ctrl+C stops a reply")
-    );
     println!();
 }
 
@@ -760,6 +710,48 @@ async fn run_slash(
                     println!("Attached file.");
                 }
                 Err(error) => return Err(error),
+            }
+        }
+        "info" | "details" | "status" => {
+            let model = agent::resolve_model(&session.model_slug);
+            let window = agent::context_window(&ctx.settings, &model);
+            println!("{}", output::bold("Relay details"));
+            println!(
+                "Model: {} · {} context",
+                model.name,
+                format_tokens_exact(u64::from(window))
+            );
+            println!(
+                "Mode: {} · {} · reasoning {} · approval {}",
+                if ctx.settings.interaction_mode == "chat" {
+                    "Chat"
+                } else {
+                    "Work"
+                },
+                ctx.settings.agent_mode.label(),
+                if model.reasoning == ReasoningKind::None {
+                    "not supported".to_owned()
+                } else {
+                    agent::effective_reasoning(&ctx.settings, &model)
+                        .label()
+                        .to_owned()
+                },
+                ctx.settings.tool_approval.label()
+            );
+            println!(
+                "Temp {:.2} · output {} · preset {}",
+                ctx.settings.temperature,
+                output::token_limit(ctx.settings.max_output_tokens),
+                ctx.settings.active_preset_id
+            );
+            match &session.conversation_id {
+                Some(id) => println!(
+                    "Session {} · “{}” · {} messages",
+                    output::short_id(id),
+                    session.title,
+                    session.messages.len()
+                ),
+                None => println!("New conversation"),
             }
         }
         "quit" | "exit" | "q" => return Ok(Flow::Quit),
