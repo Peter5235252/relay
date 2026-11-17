@@ -1624,7 +1624,16 @@ async fn web(query: &str, json: bool) -> Result<(), String> {
 }
 
 fn shell() -> Result<(), String> {
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_owned());
+    #[cfg(target_os = "windows")]
+    let shell = std::env::var("COMSPEC").unwrap_or_else(|_| "powershell.exe".to_owned());
+    #[cfg(not(target_os = "windows"))]
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| {
+        if cfg!(target_os = "macos") {
+            "/bin/zsh".to_owned()
+        } else {
+            "/bin/sh".to_owned()
+        }
+    });
     eprintln!("Opening {shell}. Type `exit` to return to Relay CLI.");
     let status = ProcessCommand::new(&shell)
         .env("RELAY_CLI", "1")

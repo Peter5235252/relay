@@ -26,10 +26,43 @@ pub struct ShellSession {
     _events_tx: Sender<ShellEvent>,
 }
 
+fn command_exists(name: &str) -> bool {
+    std::process::Command::new(name)
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
 fn default_shell() -> String {
-    if std::path::Path::new("/bin/bash").exists() {
-        "/bin/bash".to_owned()
-    } else {
+    #[cfg(target_os = "windows")]
+    {
+        if command_exists("pwsh") {
+            "pwsh".to_owned()
+        } else {
+            "powershell".to_owned()
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if std::path::Path::new("/bin/zsh").exists() {
+            "/bin/zsh".to_owned()
+        } else {
+            std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_owned())
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if std::path::Path::new("/bin/bash").exists() {
+            "/bin/bash".to_owned()
+        } else {
+            std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_owned())
+        }
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
         std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_owned())
     }
 }
@@ -131,12 +164,19 @@ impl ShellSession {
 
         let shell = default_shell();
         let mut cmd = CommandBuilder::new(&shell);
-        if shell.ends_with("bash") {
+        if shell.ends_with("bash") || shell.ends_with("zsh") {
             cmd.arg("-i");
+        }
+        #[cfg(target_os = "windows")]
+        {
+            cmd.arg("-NoLogo");
         }
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
-        if let Ok(home) = std::env::var("HOME") {
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .ok();
+        if let Some(home) = home {
             cmd.cwd(home);
         } else if let Ok(cwd) = std::env::current_dir() {
             cmd.cwd(cwd);
@@ -195,18 +235,25 @@ impl ShellSession {
         if self.exited {
             return None;
         }
-        let pid = self.child.as_ref()?.process_id()?;
-        let path = std::fs::read_link(format!("/proc/{pid}/cwd")).ok()?;
-        let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
-        let label = match home {
-            Some(home) => match path.strip_prefix(&home) {
-                Ok(rest) if rest.as_os_str().is_empty() => "~".to_owned(),
-                Ok(rest) => format!("~/{}", rest.display()),
-                Err(_) => path.display().to_string(),
-            },
-            None => path.display().to_string(),
-        };
-        Some(label)
+        #[cfg(not(unix))]
+        {
+            return None;
+        }
+        #[cfg(unix)]
+        {
+            let pid = self.child.as_ref()?.process_id()?;
+            let path = std::fs::read_link(format!("/proc/{pid}/cwd")).ok()?;
+            let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+            let label = match home {
+                Some(home) => match path.strip_prefix(&home) {
+                    Ok(rest) if rest.as_os_str().is_empty() => "~".to_owned(),
+                    Ok(rest) => format!("~/{}", rest.display()),
+                    Err(_) => path.display().to_string(),
+                },
+                None => path.display().to_string(),
+            };
+            Some(label)
+        }
     }
 
     pub fn write(&mut self, data: &str) -> Result<(), String> {
