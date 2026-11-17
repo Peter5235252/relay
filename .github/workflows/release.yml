@@ -143,6 +143,7 @@ jobs:
           done
           iconutil -c icns "$iconset" -o dist/Relay.app/Contents/Resources/Relay.icns
           codesign --force --deep --sign - dist/Relay.app
+          codesign --force --sign - dist/relay
           codesign --force --sign - dist/relay-cli
           codesign --force --sign - dist/relay-clear
 
