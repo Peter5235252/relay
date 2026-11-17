@@ -162,6 +162,12 @@ impl ShellSession {
         let shell = relay_core::default_shell();
         let flavor = relay_core::shell_flavor(&shell);
         let mut cmd = CommandBuilder::new(&shell);
+        // Terminal.app starts a login shell on macOS so the user's profile and
+        // Homebrew environment are loaded before the first prompt.
+        #[cfg(target_os = "macos")]
+        if flavor == relay_core::ShellFlavor::Posix {
+            cmd.arg("-l");
+        }
         for arg in flavor.interactive_args() {
             cmd.arg(arg);
         }

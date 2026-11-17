@@ -59,8 +59,10 @@ pub fn is_curated(tag: &str) -> bool {
 
 /// Build an `ollama` command without flashing a console window on Windows.
 fn ollama_command() -> Command {
+    let program = relay_core::platform::resolve_program("ollama")
+        .unwrap_or_else(|| std::path::PathBuf::from("ollama"));
     #[allow(unused_mut)]
-    let mut command = Command::new("ollama");
+    let mut command = Command::new(program);
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt as _;

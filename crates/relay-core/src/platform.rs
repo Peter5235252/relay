@@ -101,7 +101,23 @@ pub fn resolve_program(name: &str) -> Option<PathBuf> {
     if lookup.components().count() > 1 {
         return lookup.is_file().then(|| lookup.to_path_buf());
     }
-    let path = std::env::var_os("PATH")?;
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    #[allow(unused_mut)]
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    // GUI apps on macOS inherit a minimal PATH; include Homebrew locations so
+    // Ollama, MCP servers, and similar helpers resolve without a shell.
+    #[cfg(target_os = "macos")]
+    for dir in [
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        "/opt/homebrew/sbin",
+        "/usr/local/sbin",
+    ] {
+        if std::path::Path::new(dir).is_dir() {
+            dirs.push(PathBuf::from(dir));
+        }
+    }
+    dirs.extend(std::env::split_paths(&path));
     let extensions: Vec<String> = if cfg!(windows) {
         std::env::var("PATHEXT")
             .unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_owned())
@@ -111,7 +127,7 @@ pub fn resolve_program(name: &str) -> Option<PathBuf> {
     } else {
         vec![String::new()]
     };
-    for dir in std::env::split_paths(&path) {
+    for dir in dirs {
         if dir.as_os_str().is_empty() {
             continue;
         }
@@ -196,6 +212,13 @@ pub fn default_shell() -> String {
 pub fn shell_command(shell: &str, command: &str) -> Command {
     let flavor = shell_flavor(shell);
     let mut cmd = Command::new(shell);
+    // GUI apps on macOS inherit a minimal PATH. A login zsh sources the
+    // user's profile (Homebrew shellenv, PATH additions) so model-run
+    // commands see the same tools as Terminal.app.
+    #[cfg(target_os = "macos")]
+    if flavor == ShellFlavor::Posix {
+        cmd.arg("-l");
+    }
     cmd.args(flavor.command_args());
     match flavor {
         ShellFlavor::PowerShell => {
