@@ -40,6 +40,16 @@ jobs:
             libegl1-mesa-dev libvulkan-dev libasound2-dev \
             libglib2.0-dev libgtk-3-dev
 
+      - name: Free disk space (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          # Two release builds plus the DMG need room; the runner ships
+          # SDKs this project never uses.
+          sudo rm -rf "$HOME/Library/Android/sdk" || true
+          sudo rm -rf /usr/local/share/dotnet || true
+          sudo rm -rf /usr/local/.ghcup || true
+          df -h /
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -108,6 +118,10 @@ jobs:
             target/x86_64-apple-darwin/release/relay-clear
           chmod +x dist/relay dist/relay-cli dist/relay-clear
           cp dist/relay dist/relay-cli dist/relay-clear dist/Relay.app/Contents/MacOS/
+          # The linked binaries are final; drop intermediate objects so the
+          # DMG and archives have free space to work with.
+          rm -rf target/aarch64-apple-darwin/release/deps target/aarch64-apple-darwin/release/build \
+                 target/x86_64-apple-darwin/release/deps target/x86_64-apple-darwin/release/build
           sed "s/__VERSION__/$version/g" packaging/macos/Info.plist > dist/Relay.app/Contents/Info.plist
           printf 'APPL????' > dist/Relay.app/Contents/PkgInfo
 

@@ -123,6 +123,10 @@ commands such as `/temperature`, `/max-output`, and `/instructions`.
 | Windows x64 | ✅ | ✅ | PowerShell / pwsh | ✅ (Vulkan) |
 | Windows arm64 | ✅ | ✅ | PowerShell / pwsh | ✅ (CPU) |
 
+Prebuilt release archives are produced for Linux x86_64, macOS (universal), and
+Windows x64. The other rows build from source with the bundled llama.cpp
+archive for that target.
+
 On Windows the desktop terminal, `relay-cli shell`, and the model's
 `run_command` tool all use PowerShell (`pwsh` when installed, otherwise
 Windows PowerShell). On macOS they use zsh. Linux uses bash or the login shell.
