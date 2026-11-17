@@ -1871,7 +1871,7 @@ complete -c relay-cli -n '__fish_seen_subcommand_from completions' -a 'bash zsh 
 "#;
 
 const POWERSHELL_COMPLETIONS: &str = r#"
-Register-ArgumentCompleter -Native -CommandName relay-cli -ScriptBlock {
+$RelayCliCompleter = {
     param($wordToComplete, $commandAst, $cursorPosition)
     $commands = @(
         'chat', 'ask', 'prompt', 'sessions', 'conversations', 'history', 'models',
@@ -1891,6 +1891,15 @@ Register-ArgumentCompleter -Native -CommandName relay-cli -ScriptBlock {
             ForEach-Object {
                 [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
             }
+    }
+}
+if ($PSVersionTable.PSVersion.Major -ge 6) {
+    Register-ArgumentCompleter -Native -CommandName relay-cli -ScriptBlock $RelayCliCompleter
+} else {
+    try {
+        Register-ArgumentCompleter -CommandName relay-cli -ScriptBlock $RelayCliCompleter
+    } catch {
+        # Windows PowerShell 5.1 has no native-command argument completer.
     }
 }
 "#;

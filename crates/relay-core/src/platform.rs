@@ -102,7 +102,6 @@ pub fn resolve_program(name: &str) -> Option<PathBuf> {
         return lookup.is_file().then(|| lookup.to_path_buf());
     }
     let path = std::env::var_os("PATH").unwrap_or_default();
-    #[allow(unused_mut)]
     let mut dirs: Vec<PathBuf> = Vec::new();
     // GUI apps on macOS inherit a minimal PATH; include Homebrew locations so
     // Ollama, MCP servers, and similar helpers resolve without a shell.

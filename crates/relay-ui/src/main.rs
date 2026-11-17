@@ -81,6 +81,13 @@ fn main() -> ExitCode {
 
     restrict_umask();
 
+    // Explorer and Finder launch apps with an unrelated working directory
+    // (`C:\Windows\System32`, `/`). Run from the user's home so model tools and
+    // relative paths behave like the integrated terminal.
+    if let Some(home) = relay_core::platform::home_dir() {
+        let _ = std::env::set_current_dir(home);
+    }
+
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "relay_ui=info,warn".into());
     tracing_subscriber::fmt()
