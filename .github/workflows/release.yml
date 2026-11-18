@@ -19,7 +19,7 @@ jobs:
         include:
           - os: ubuntu-24.04
             name: linux-x86_64
-          - os: macos-latest
+          - os: macos-15
             name: macos-universal
           - os: windows-latest
             name: windows-x64
