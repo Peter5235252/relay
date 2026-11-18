@@ -40,9 +40,26 @@ fn main() -> ExitCode {
 
     restrict_umask();
 
-    if matches!(&command, Command::Clear) {
-        output::clear_screen();
-        return ExitCode::SUCCESS;
+    // Informational commands must work without a keyring, database, or MCP
+    // servers, including on headless CI and servers.
+    match &command {
+        Command::Clear => {
+            output::clear_screen();
+            return ExitCode::SUCCESS;
+        }
+        Command::Version => {
+            println!("relay-cli {}", env!("CARGO_PKG_VERSION"));
+            return ExitCode::SUCCESS;
+        }
+        Command::Help(topic) => {
+            print!("{}", args::help_for(topic.as_deref().unwrap_or("")));
+            return ExitCode::SUCCESS;
+        }
+        Command::Completions { shell } => {
+            print!("{}", commands::completions(shell));
+            return ExitCode::SUCCESS;
+        }
+        _ => {}
     }
 
     let filter =
@@ -103,17 +120,6 @@ fn main() -> ExitCode {
         bundled: bundled_state,
         ollama_child: None,
     };
-
-    if let Command::Help(topic) = command {
-        print!("{}", args::help_for(topic.as_deref().unwrap_or("")));
-        ctx.shutdown();
-        return ExitCode::SUCCESS;
-    }
-    if let Command::Version = command {
-        println!("relay-cli {}", env!("CARGO_PKG_VERSION"));
-        ctx.shutdown();
-        return ExitCode::SUCCESS;
-    }
 
     let result = runtime.block_on(commands::dispatch(command, &mut ctx));
     ctx.shutdown();
