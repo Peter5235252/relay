@@ -64,13 +64,13 @@ jobs:
 
       - name: Build release binaries (Linux)
         if: runner.os == 'Linux'
-        run: cargo build --release --locked -p relay-ui -p relay-cli
+        run: cargo relay-build
 
       - name: Build universal release binaries (macOS)
         if: runner.os == 'macOS'
         run: |
-          cargo build --release --locked --target aarch64-apple-darwin -p relay-ui -p relay-cli
-          cargo build --release --locked --target x86_64-apple-darwin -p relay-ui -p relay-cli
+          cargo relay-build --target aarch64-apple-darwin
+          cargo relay-build --target x86_64-apple-darwin
 
       - name: Build release binaries (Windows)
         if: runner.os == 'Windows'

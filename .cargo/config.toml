@@ -1,0 +1,2 @@
+[alias]
+relay-build = "build --release --locked -p relay-ui -p relay-cli"

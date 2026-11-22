@@ -65,7 +65,7 @@ unknown publisher; choose **More info → Run anyway**.
 Build both applications and install them into `~/.local`:
 
 ```sh
-cargo build --locked --release -p relay-ui -p relay-cli
+cargo relay-build
 ./packaging/install-local.sh
 ```
 
@@ -83,31 +83,80 @@ conversation.
 
 ## Building from source
 
-The repository pins Rust 1.100.0 in `rust-toolchain.toml`; rustup installs the
-toolchain when needed. A native C/C++ toolchain and the platform development
-libraries required by GPUI must also be installed.
+### Prerequisites
 
-From a checkout, build both the desktop app and CLI with:
+Install Git and [rustup](https://rustup.rs/). The repository pins Rust
+1.100.0 in `rust-toolchain.toml`; rustup automatically downloads the required
+toolchain the first time you build.
+
+The desktop app uses GPUI and needs a native compiler toolchain and platform
+libraries in addition to Rust:
+
+- **Linux (Debian/Ubuntu):** install the packages used by CI:
+
+  ```sh
+  sudo apt-get update
+  sudo apt-get install -y build-essential pkg-config cmake clang \
+    libssl-dev libfontconfig1-dev libfreetype6-dev \
+    libx11-dev libx11-xcb-dev libxcb1-dev \
+    libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+    libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
+    libegl1-mesa-dev libvulkan-dev libasound2-dev \
+    libglib2.0-dev libgtk-3-dev
+  ```
+
+  On other Linux distributions, install the equivalent development packages
+  from your distribution's repositories.
+
+- **macOS:** install Xcode and its command-line tools, launch Xcode once to
+  finish installing its components, then run `xcode-select --install` if the
+  command-line tools are not installed. Install CMake with
+  `brew install cmake` or your preferred package manager.
+
+- **Windows:** install Visual Studio or Build Tools with the **Desktop
+  development with C++** workload, including the MSVC x64/x86 build tools and
+  a Windows 10 or 11 SDK. Install CMake as well. Run the build from a Visual
+  Studio Developer PowerShell or Developer Command Prompt so the MSVC tools
+  are available in the environment.
+
+See the [GPUI build prerequisites](https://github.com/zed-industries/zed/tree/main/docs/src/development)
+for additional platform-specific details.
+
+### Build both applications
+
+Clone the repository and run this same command from its root on Linux, macOS,
+or Windows:
 
 ```sh
-cargo build --locked --release -p relay-ui -p relay-cli
+git clone https://github.com/Peter5235252/relay.git
+cd relay
+cargo relay-build
 ```
 
-This builds three executables:
+`cargo relay-build` is a repository-local Cargo alias for a locked,
+optimized release build of both application packages. It builds:
 
-- `target/release/relay` — desktop application.
-- `target/release/relay-cli` — command-line client.
-- `target/release/relay-clear` — local data cleanup utility.
+- `relay` — desktop application.
+- `relay-cli` — command-line client.
+- `relay-clear` — local data cleanup utility.
 
-To build only one application, use the corresponding package:
+The executables are written to `target/release` (`target\\release` on
+Windows, with the `.exe` extension).
+
+A regular `cargo build` also builds both applications, using the faster debug
+profile. To build just one application, select its package explicitly:
 
 ```sh
-cargo build --locked --release -p relay-ui
-cargo build --locked --release -p relay-cli
+cargo build --release --locked -p relay-ui
+cargo build --release --locked -p relay-cli
 ```
 
-On Windows, the executables are in `target\release` and have an `.exe`
-extension.
+To run the applications directly from the checkout:
+
+```sh
+cargo run --release -p relay-ui
+cargo run --release -p relay-cli --bin relay-cli
+```
 
 ## Command line
 
@@ -116,8 +165,8 @@ personality presets as the desktop app. Generation controls match the desktop
 Settings panel and persist for later runs.
 
 ```sh
-cargo build --locked --release -p relay-cli
-./target/release/relay-cli
+cargo relay-build
+cargo run --release -p relay-cli --bin relay-cli
 
 relay-cli "explain this repository"
 relay-cli chat --reasoning high --temperature 0.3 --max-output 1024

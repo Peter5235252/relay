@@ -8,7 +8,7 @@ members = [
     "crates/relay-ui",
     "crates/relay-cli",
 ]
-default-members = ["crates/relay-ui"]
+default-members = ["crates/relay-ui", "crates/relay-cli"]
 
 [workspace.package]
 version = "0.1.9"
