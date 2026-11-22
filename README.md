@@ -73,7 +73,9 @@ cd relay
 python3 install.py
 ```
 
-On Windows 11, run this from PowerShell:
+On Windows 11, install Python 3.10 or newer first (for example, with
+`winget install --id Python.Python.3.13 --exact`). Open a new PowerShell
+window, then run:
 
 ```powershell
 py -3 install.py
@@ -86,7 +88,7 @@ system packages. On RHEL, enable the required AppStream and CodeReady Builder
 repositories; some packages may also require EPEL.
 
 On macOS, install Xcode Command Line Tools and Homebrew first. The script uses
-Homebrew to install CMake and pkg-config. On Windows 11, it can install Visual
+Homebrew to install CMake, pkg-config, and the Fontconfig runtime library. On Windows 11, it can install Visual
 Studio 2022 Build Tools with the C++ workload and Windows 11 SDK, plus CMake,
 through winget.
 
@@ -129,7 +131,8 @@ in the debug profile.
 The repository sets `RUST_FONTCONFIG_DLOPEN` for
 `yeslogic-fontconfig-sys`. Fontconfig is loaded at runtime, so builds no longer
 need `fontconfig.pc` or the Fontconfig development package at compile time.
-The Fontconfig shared library is still required at runtime.
+The Fontconfig shared library is still required at runtime. The installer supplies it through the
+Linux distribution packages or Homebrew on macOS.
 
 To build only one application, select its package:
 

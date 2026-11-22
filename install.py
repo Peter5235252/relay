@@ -113,8 +113,8 @@ def install_macos_deps(skip: bool) -> None:
     if not shutil.which("brew"):
         raise RuntimeError("Homebrew is required to install CMake and pkg-config. Install it from https://brew.sh, then rerun.")
     if not skip:
-        run(["brew", "install", "cmake", "pkg-config"])
-    for tool in ("cmake", "pkg-config", "clang"):
+        run(["brew", "install", "cmake", "pkg-config", "fontconfig"])
+    for tool in ("cmake", "pkg-config", "clang", "fc-list"):
         if not shutil.which(tool):
             raise RuntimeError(f"Required build tool '{tool}' is missing.")
 
@@ -259,7 +259,7 @@ def install_windows(debug: bool) -> None:
         except FileNotFoundError:
             old, kind = "", winreg.REG_EXPAND_SZ
         parts = [p for p in old.split(";") if p]
-        if str(app) not in [p.rstrip("\\").lower() for p in parts]:
+        if str(app).rstrip("\\").lower() not in [p.rstrip("\\").lower() for p in parts]:
             winreg.SetValueEx(key, "Path", 0, kind, ";".join(parts + [str(app)]))
     finally:
         winreg.CloseKey(key)
