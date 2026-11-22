@@ -115,13 +115,13 @@ commands such as `/temperature`, `/max-output`, and `/instructions`.
 
 ## Platform support
 
-| Platform | Desktop app | CLI | Integrated terminal | Bundled local models |
-| --- | --- | --- | --- | --- |
-| Linux x86_64 | ✅ | ✅ | bash/zsh | ✅ (Vulkan) |
-| Linux arm64 | ✅ | ✅ | bash/zsh | ✅ (CPU) |
-| macOS arm64 + x86_64 | ✅ | ✅ | zsh | ✅ (Metal) |
-| Windows x64 | ✅ | ✅ | PowerShell / pwsh | ✅ (Vulkan) |
-| Windows arm64 | ✅ | ✅ | PowerShell / pwsh | ✅ (CPU) |
+| Platform             | Desktop app | CLI | Integrated terminal | Bundled local models |
+| -------------------- | ----------- | --- | ------------------- | -------------------- |
+| Linux x86_64         | ✓           | ✓   | bash/zsh            | ✓ (Vulkan)           |
+| Linux arm64          | ✓           | ✓   | bash/zsh            | ✓ (CPU)              |
+| macOS arm64 + x86_64 | ✓           | ✓   | zsh                 | ✓ (Metal)            |
+| Windows x64          | ✓           | ✓   | PowerShell / pwsh   | ✓ (Vulkan)           |
+| Windows arm64        | ✓           | ✓   | PowerShell / pwsh   | ✓ (CPU)              |
 
 Prebuilt release archives are produced for Linux x86_64, macOS (universal), and
 Windows x64. The other rows build from source with the bundled llama.cpp
@@ -136,4 +136,4 @@ Linux, macOS, and Windows binaries are built and tested by GitHub Actions.
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
