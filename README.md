@@ -1,8 +1,9 @@
 # Relay
 
-Relay is a memory-safe Rust desktop agentic work and chat client that unifies Gemini, Claude,
-GPT, Ollama, and OpenAI-compatible models behind a single interface.
-Built with [GPUI](https://github.com/zed-industries/zed).
+Relay is a memory-safe Rust agentic work and chat client with desktop and terminal
+interfaces, unifying Gemini, Claude, GPT, Ollama, and OpenAI-compatible models
+behind a single interface. The desktop app is built with
+[GPUI](https://github.com/zed-industries/zed).
 
 ## Features
 
@@ -61,8 +62,10 @@ unknown publisher; choose **More info → Run anyway**.
 
 ### Local install from a checkout (Linux)
 
+Build both applications and install them into `~/.local`:
+
 ```sh
-cargo build -p relay-ui -p relay-cli --release
+cargo build --locked --release -p relay-ui -p relay-cli
 ./packaging/install-local.sh
 ```
 
@@ -78,13 +81,33 @@ app and the CLI:
 Images are stored inside the encrypted SQLCipher database alongside the
 conversation.
 
-## Building
+## Building from source
+
+The repository pins Rust 1.100.0 in `rust-toolchain.toml`; rustup installs the
+toolchain when needed. A native C/C++ toolchain and the platform development
+libraries required by GPUI must also be installed.
+
+From a checkout, build both the desktop app and CLI with:
 
 ```sh
-cargo build -p relay-ui --release
+cargo build --locked --release -p relay-ui -p relay-cli
 ```
 
-The binary is `relay`.
+This builds three executables:
+
+- `target/release/relay` — desktop application.
+- `target/release/relay-cli` — command-line client.
+- `target/release/relay-clear` — local data cleanup utility.
+
+To build only one application, use the corresponding package:
+
+```sh
+cargo build --locked --release -p relay-ui
+cargo build --locked --release -p relay-cli
+```
+
+On Windows, the executables are in `target\release` and have an `.exe`
+extension.
 
 ## Command line
 
@@ -93,7 +116,7 @@ personality presets as the desktop app. Generation controls match the desktop
 Settings panel and persist for later runs.
 
 ```sh
-cargo build -p relay-cli --release
+cargo build --locked --release -p relay-cli
 ./target/release/relay-cli
 
 relay-cli "explain this repository"
