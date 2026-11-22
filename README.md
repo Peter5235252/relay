@@ -59,13 +59,6 @@ Download `relay-setup-windows-x64.exe` and run the installer, or use
 shortcuts and can put `relay-cli` on your `PATH`. SmartScreen may warn about an
 unknown publisher; choose **More info → Run anyway**.
 
-### Arch (AUR-style, from source)
-
-```sh
-cd packaging/aur
-makepkg -si
-```
-
 ### Local install from a checkout (Linux)
 
 ```sh
@@ -86,6 +79,7 @@ Images are stored inside the encrypted SQLCipher database alongside the
 conversation.
 
 ## Building
+
 ```sh
 cargo build -p relay-ui --release
 ```
