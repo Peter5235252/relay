@@ -14,7 +14,7 @@ options=('!lto')
 
 build() {
     cd "$srcdir/$pkgname"
-    cargo build --release --locked -p relay-ui -p relay-cli
+    cargo relay-build
 }
 
 package() {

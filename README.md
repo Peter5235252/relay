@@ -53,21 +53,48 @@ The `.tar.gz` archive is available for scripted installs: it contains
 The CLI binaries are ad-hoc signed. If macOS quarantines a downloaded copy,
 clear the flag once with `xattr -dr com.apple.quarantine Relay.app relay-cli relay-clear`.
 
-### Windows (x64, Windows 10 1809+)
+### Windows 11 (x64)
 
 Download `relay-setup-windows-x64.exe` and run the installer, or use
-`relay-windows-x64.zip` for a portable copy. The installer adds Start Menu
-shortcuts and can put `relay-cli` on your `PATH`. SmartScreen may warn about an
-unknown publisher; choose **More info → Run anyway**.
+`relay-windows-x64.zip` for a portable copy. Windows 10 is not supported.
 
-### Local install from a checkout (Linux)
+### Build and install from source (Linux, macOS, Windows 11)
 
-Build both applications and install them into `~/.local`:
+The repository includes one cross-platform installer, `install.py`. It installs
+native build dependencies where supported, bootstraps the pinned Rust toolchain,
+builds the desktop app and CLI, and installs them for the current user. Python
+3.10 or newer is required.
 
 ```sh
-cargo relay-build
-./packaging/install-local.sh
+git clone https://github.com/Peter5235252/relay.git
+cd relay
+
+# Linux and macOS
+python3 install.py
 ```
+
+On Windows 11, run this from PowerShell:
+
+```powershell
+py -3 install.py
+```
+
+The Linux installer supports apt-based distributions (Debian, Ubuntu 24.04/26.04
+LTS and derivatives), Void, Arch-based distributions, Fedora, RHEL-compatible
+systems, openSUSE, Alpine, and Gentoo. It uses `sudo` or `doas` to install
+system packages. On RHEL, enable the required AppStream and CodeReady Builder
+repositories; some packages may also require EPEL.
+
+On macOS, install Xcode Command Line Tools and Homebrew first. The script uses
+Homebrew to install CMake and pkg-config. On Windows 11, it can install Visual
+Studio 2022 Build Tools with the C++ workload and Windows 11 SDK, plus CMake,
+through winget.
+
+Use `--skip-system-deps` when the required native packages are already installed,
+`--no-install` to build without copying the executables into user install
+locations, or `--debug` for a faster debug build. Unrecognized Linux
+distributions can use `--skip-system-deps` after installing equivalent GPUI
+development packages manually.
 
 ## Attachments
 
@@ -83,80 +110,36 @@ conversation.
 
 ## Building from source
 
-### Prerequisites
+For a one-command build and per-user installation, run `python3 install.py`
+on Linux/macOS or `py -3 install.py` on Windows 11. The installer handles
+supported native dependencies and the Rust toolchain before building both apps.
 
-Install Git and [rustup](https://rustup.rs/). The repository pins Rust
-1.100.0 in `rust-toolchain.toml`; rustup automatically downloads the required
-toolchain the first time you build.
-
-The desktop app uses GPUI and needs a native compiler toolchain and platform
-libraries in addition to Rust:
-
-- **Linux (Debian/Ubuntu):** install the packages used by CI:
-
-  ```sh
-  sudo apt-get update
-  sudo apt-get install -y build-essential pkg-config cmake clang \
-    libssl-dev libfontconfig1-dev libfreetype6-dev \
-    libx11-dev libx11-xcb-dev libxcb1-dev \
-    libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
-    libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
-    libegl1-mesa-dev libvulkan-dev libasound2-dev \
-    libglib2.0-dev libgtk-3-dev
-  ```
-
-  On other Linux distributions, install the equivalent development packages
-  from your distribution's repositories.
-
-- **macOS:** install Xcode and its command-line tools, launch Xcode once to
-  finish installing its components, then run `xcode-select --install` if the
-  command-line tools are not installed. Install CMake with
-  `brew install cmake` or your preferred package manager.
-
-- **Windows:** install Visual Studio or Build Tools with the **Desktop
-  development with C++** workload, including the MSVC x64/x86 build tools and
-  a Windows 10 or 11 SDK. Install CMake as well. Run the build from a Visual
-  Studio Developer PowerShell or Developer Command Prompt so the MSVC tools
-  are available in the environment.
-
-See the [GPUI build prerequisites](https://github.com/zed-industries/zed/tree/main/docs/src/development)
-for additional platform-specific details.
-
-### Build both applications
-
-Clone the repository and run this same command from its root on Linux, macOS,
-or Windows:
+With prerequisites already installed, build both applications from the
+repository root on any supported platform:
 
 ```sh
-git clone https://github.com/Peter5235252/relay.git
-cd relay
 cargo relay-build
 ```
 
-`cargo relay-build` is a repository-local Cargo alias for a locked,
-optimized release build of both application packages. It builds:
+This creates `relay` (desktop), `relay-cli` (terminal client), and
+`relay-clear` (data cleanup utility) under `target/release` or
+`target\\release` on Windows. A plain `cargo build` also builds both apps
+in the debug profile.
 
-- `relay` — desktop application.
-- `relay-cli` — command-line client.
-- `relay-clear` — local data cleanup utility.
+The repository sets `RUST_FONTCONFIG_DLOPEN` for
+`yeslogic-fontconfig-sys`. Fontconfig is loaded at runtime, so builds no longer
+need `fontconfig.pc` or the Fontconfig development package at compile time.
+The Fontconfig shared library is still required at runtime.
 
-The executables are written to `target/release` (`target\\release` on
-Windows, with the `.exe` extension).
-
-A regular `cargo build` also builds both applications, using the faster debug
-profile. To build just one application, select its package explicitly:
+To build only one application, select its package:
 
 ```sh
 cargo build --release --locked -p relay-ui
 cargo build --release --locked -p relay-cli
 ```
 
-To run the applications directly from the checkout:
-
-```sh
-cargo run --release -p relay-ui
-cargo run --release -p relay-cli --bin relay-cli
-```
+Run an application from the checkout with `cargo run -p relay-ui` or
+`cargo run -p relay-cli --bin relay-cli`.
 
 ## Command line
 
@@ -186,7 +169,7 @@ commands such as `/temperature`, `/max-output`, and `/instructions`.
 | Linux x86_64         | ✓           | ✓   | bash/zsh            | ✓ (Vulkan)           |
 | Linux arm64          | ✓           | ✓   | bash/zsh            | ✓ (CPU)              |
 | macOS arm64 + x86_64 | ✓           | ✓   | zsh                 | ✓ (Metal)            |
-| Windows x64          | ✓           | ✓   | PowerShell / pwsh   | ✓ (Vulkan)           |
+| Windows 11 x64       | ✓           | ✓   | PowerShell / pwsh   | ✓ (Vulkan)           |
 | Windows arm64        | ✓           | ✓   | PowerShell / pwsh   | ✓ (CPU)              |
 
 Prebuilt release archives are produced for Linux x86_64, macOS (universal), and

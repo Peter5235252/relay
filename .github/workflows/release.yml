@@ -74,7 +74,7 @@ jobs:
 
       - name: Build release binaries (Windows)
         if: runner.os == 'Windows'
-        run: cargo build --release --locked -p relay-ui -p relay-cli
+        run: cargo relay-build
 
       - name: Read version
         id: version

@@ -1,2 +1,7 @@
 [alias]
 relay-build = "build --release --locked -p relay-ui -p relay-cli"
+
+[env]
+# Load Fontconfig at runtime instead of requiring fontconfig.pc during compilation.
+# The Fontconfig shared library is still required when Relay runs.
+RUST_FONTCONFIG_DLOPEN = "on"
