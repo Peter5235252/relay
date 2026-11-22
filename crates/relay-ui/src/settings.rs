@@ -1436,7 +1436,7 @@ impl SettingsView {
                 card(&theme)
                     .child(provider_note(
                         "Google Gemini",
-                        "Gemini 4 Hydrogen · Argon · Carbon",
+                        "Gemini 4 Hydrogen · Argon · Carbon · Neon",
                         "Paid Gemini API tier: prompts and responses are not used to improve \
                          Google products; logs are kept briefly for abuse prevention. Unpaid tier \
                          and AI Studio may use content to improve products, including human \
@@ -1569,7 +1569,7 @@ impl SettingsView {
                                 div()
                                     .text_xs()
                                     .text_color(theme.muted_foreground)
-                                    .child("12 cloud models · Ollama · OpenAI-compatible"),
+                                    .child("13 cloud models · Ollama · OpenAI-compatible"),
                             ),
                     )
                     .child(

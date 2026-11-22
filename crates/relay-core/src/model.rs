@@ -181,6 +181,19 @@ pub static CLOUD_MODELS: &[ModelSpec] = &[
         local: false,
     },
     ModelSpec {
+        slug: "gemini-4-neon",
+        api_id: "gemini-4-neon",
+        name: "Gemini 4 Neon",
+        provider: Provider::Gemini,
+        tagline: "Frontier-level reasoning for fast, high-frequency agentic work.",
+        context_window: GEMINI_CONTEXT,
+        max_output: GEMINI_OUTPUT,
+        pricing: Pricing::new(3.00, 15.00).with_cached_input(0.15),
+        reasoning: ReasoningKind::Effort,
+        default_effort: crate::ReasoningEffort::High,
+        local: false,
+    },
+    ModelSpec {
         slug: "claude-haiku-5-5",
         api_id: "claude-haiku-5-5",
         name: "Claude Haiku 5.5",
@@ -436,8 +449,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn catalog_has_all_twelve_cloud_models_and_unique_ids() {
-        assert_eq!(CLOUD_MODELS.len(), 12);
+    fn catalog_has_all_thirteen_cloud_models_and_unique_ids() {
+        assert_eq!(CLOUD_MODELS.len(), 13);
         let mut slugs = std::collections::HashSet::new();
         let mut api_ids = std::collections::HashSet::new();
         for model in CLOUD_MODELS {
@@ -455,7 +468,7 @@ mod tests {
                 .iter()
                 .filter(|m| m.provider == Provider::Gemini)
                 .count(),
-            3
+            4
         );
         assert_eq!(
             CLOUD_MODELS
