@@ -37,21 +37,23 @@ Relay ships prebuilt binaries for Linux, macOS, and Windows from
 ### Linux (x86_64)
 
 Download `relay-linux-x86_64.tar.gz`, extract it, and run `./relay-linux-x86_64`.
-The archive also contains `relay-cli`, `relay-clear`, the `.desktop` entry, and
-icons for a system-wide install.
+The archive also contains `relay-cli`, `relay-clear`, `relay-daemon-client`, the
+`.desktop` entry, and icons for a system-wide install.
 
 ### macOS (Apple Silicon and Intel)
 
 Download `Relay-<version>-macos-universal.dmg`, open it, and drag `Relay` into
-`Applications`. The DMG also includes `relay-cli` and `relay-clear` in its
-`CLI` folder. The app is a universal binary, ad-hoc signed for both
+`Applications`. The DMG also includes `relay-cli`, `relay-clear`, and
+`relay-daemon-client` in its `CLI` folder. The app is a universal binary,
+ad-hoc signed for both
 architectures; on first launch, right-click `Relay` and choose **Open** to get
 past Gatekeeper's unidentified-developer warning.
 
 The `.tar.gz` archive is available for scripted installs: it contains
-`Relay.app` plus standalone `relay`, `relay-cli`, and `relay-clear` binaries.
-The CLI binaries are ad-hoc signed. If macOS quarantines a downloaded copy,
-clear the flag once with `xattr -dr com.apple.quarantine Relay.app relay-cli relay-clear`.
+`Relay.app` plus standalone `relay`, `relay-cli`, `relay-clear`, and
+`relay-daemon-client` binaries. The CLI binaries are ad-hoc signed. If macOS
+quarantines a downloaded copy, clear the flag once with
+`xattr -dr com.apple.quarantine Relay.app relay-cli relay-clear relay-daemon-client`.
 
 ### Windows 11 (x64)
 
@@ -123,10 +125,10 @@ repository root on any supported platform:
 cargo relay-build
 ```
 
-This creates `relay` (desktop), `relay-cli` (terminal client), and
-`relay-clear` (data cleanup utility) under `target/release` or
-`target\\release` on Windows. A plain `cargo build` also builds both apps
-in the debug profile.
+This creates `relay` (desktop and daemon), `relay-cli` (terminal client),
+`relay-clear` (data cleanup utility), and `relay-daemon-client` (IPC reference
+client) under `target/release` or `target\\release` on Windows. A plain
+`cargo build` also builds every binary in the debug profile.
 
 The repository sets `RUST_FONTCONFIG_DLOPEN` for
 `yeslogic-fontconfig-sys`. Fontconfig is loaded at runtime, so builds no longer
@@ -165,15 +167,47 @@ relay-cli models
 lists every flag, and `/help` inside the interactive client lists slash
 commands such as `/temperature`, `/max-output`, and `/instructions`.
 
+## Daemon and IPC clients
+
+`relay --daemon` runs the same engine without a window and serves it over local
+IPC. Native clients can stream chat turns, manage conversations, settings,
+models, tools, presets, and memory without opening the encrypted database or
+reimplementing provider behavior. The GPUI app remains the default client.
+
+```sh
+RELAY_MASTER_KEY=<64 hex characters> relay --daemon
+```
+
+On Unix the daemon listens on a private Unix socket under
+`$XDG_RUNTIME_DIR/relay` (override with `RELAY_DAEMON_DIR`); on Windows it binds
+a loopback TCP port. Clients read `daemon.json` for the endpoint and
+`daemon.token` for authentication. The protocol is newline-delimited JSON-RPC
+2.0 with streaming notifications for text, reasoning, usage, tools, and
+approvals.
+
+Release archives and `install.py` include `relay-daemon-client`. From a source
+checkout, `cargo relay-build` builds it alongside the other binaries; to build
+only the client:
+
+```sh
+cargo build --release --locked -p relay-daemon --bin relay-daemon-client
+relay-daemon-client status
+relay-daemon-client --model claude-sonnet-5-5 send "write a haiku"
+relay-daemon-client shutdown
+```
+
+See [docs/daemon.md](docs/daemon.md) for discovery, the full method and event
+list, approval handling, and Rust client examples.
+
 ## Platform support
 
-| Platform             | Desktop app | CLI | Integrated terminal | Bundled local models |
-| -------------------- | ----------- | --- | ------------------- | -------------------- |
-| Linux x86_64         | ✓           | ✓   | bash/zsh            | ✓ (Vulkan)           |
-| Linux arm64          | ✓           | ✓   | bash/zsh            | ✓ (CPU)              |
-| macOS arm64 + x86_64 | ✓           | ✓   | zsh                 | ✓ (Metal)            |
-| Windows 11 x64       | ✓           | ✓   | PowerShell / pwsh   | ✓ (Vulkan)           |
-| Windows arm64        | ✓           | ✓   | PowerShell / pwsh   | ✓ (CPU)              |
+| Platform             | Desktop app | CLI | Daemon IPC | Integrated terminal | Bundled local models |
+| -------------------- | ----------- | --- | ---------- | ------------------- | -------------------- |
+| Linux x86_64         | ✓           | ✓   | ✓          | bash/zsh            | ✓ (Vulkan)           |
+| Linux arm64          | ✓           | ✓   | ✓          | bash/zsh            | ✓ (CPU)              |
+| macOS arm64 + x86_64 | ✓           | ✓   | ✓          | zsh                 | ✓ (Metal)            |
+| Windows 11 x64       | ✓           | ✓   | ✓          | PowerShell / pwsh   | ✓ (Vulkan)           |
+| Windows arm64        | ✓           | ✓   | ✓          | PowerShell / pwsh   | ✓ (CPU)              |
 
 Prebuilt release archives are produced for Linux x86_64, macOS (universal), and
 Windows x64. The other rows build from source with the bundled llama.cpp

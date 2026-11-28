@@ -1,6 +1,6 @@
 # Maintainer: Cseman Peter <csemanpeter@pop-os.home>
 pkgname=relay
-pkgver=0.1.8
+pkgver=0.1.10
 pkgrel=1
 pkgdesc="Memory-safe Rust desktop agentic chat client unifying Gemini, Claude, GPT, Ollama and local models"
 arch=('x86_64')
@@ -22,6 +22,7 @@ package() {
     install -Dm755 "target/release/relay" "$pkgdir/usr/bin/relay"
     install -Dm755 "target/release/relay-cli" "$pkgdir/usr/bin/relay-cli"
     install -Dm755 "target/release/relay-clear" "$pkgdir/usr/bin/relay-clear"
+    install -Dm755 "target/release/relay-daemon-client" "$pkgdir/usr/bin/relay-daemon-client"
 
     install -Dm644 "packaging/io.github.csemanpeter.Relay.desktop" \
         "$pkgdir/usr/share/applications/io.github.csemanpeter.Relay.desktop"

@@ -34,12 +34,14 @@ Usage: relay [OPTIONS]
 
 Options:
   --version      Print the version and exit
-  --daemon       Run in the background without a window (headless)
+  --daemon       Serve the shared engine over local IPC (no window)
   --background   Alias for --daemon
   -h, --help     Print this help and exit
 
 Environment:
   RELAY_DATA_DIR       Override the data directory
+  RELAY_DAEMON_DIR     Override the daemon runtime directory
+                       (Unix default: $XDG_RUNTIME_DIR/relay)
   RELAY_MASTER_KEY     Master key for encrypted storage (64 hex characters;
                        headless fallback when no OS keyring is available)
   GEMINI_API_KEY       Fallback for the Gemini key
@@ -139,14 +141,27 @@ fn main() -> ExitCode {
 
     let bundled = std::sync::Arc::new(std::sync::Mutex::new(bundled::BundledState::default()));
 
-    // Daemon / background mode: run without a window.
+    // Daemon / background mode: serve the shared engine over local IPC and
+    // run without a window. Native clients discover the endpoint through the
+    // runtime directory written by `relay-daemon`.
     let daemon = std::env::args().any(|a| a == "--daemon" || a == "--background");
     if daemon {
-        eprintln!("Relay running in background/daemon mode (no window).");
-        // Keep the runtime alive.
-        runtime.block_on(std::future::pending::<()>());
+        let result = runtime.block_on(relay_daemon::run(relay_daemon::DaemonOptions {
+            store,
+            settings,
+            runtime: handle,
+            bundled,
+            runtime_dir: None,
+            token: None,
+        }));
         drop(runtime);
-        return ExitCode::SUCCESS;
+        return match result {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("Relay daemon stopped with an error: {error}");
+                ExitCode::FAILURE
+            }
+        };
     }
 
     gpui_kit::application()

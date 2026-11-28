@@ -1,5 +1,5 @@
 [alias]
-relay-build = "build --release --locked -p relay-ui -p relay-cli"
+relay-build = "build --release --locked -p relay-ui -p relay-cli -p relay-daemon"
 
 [env]
 # Load Fontconfig at runtime instead of requiring fontconfig.pc during compilation.

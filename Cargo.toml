@@ -5,13 +5,14 @@ members = [
     "crates/relay-store",
     "crates/relay-providers",
     "crates/relay-engine",
+    "crates/relay-daemon",
     "crates/relay-ui",
     "crates/relay-cli",
 ]
 default-members = ["crates/relay-ui", "crates/relay-cli"]
 
 [workspace.package]
-version = "0.1.9"
+version = "0.1.10"
 edition = "2024"
 rust-version = "1.90"
 license = "Apache-2.0"
@@ -23,6 +24,7 @@ relay-core = { path = "crates/relay-core" }
 relay-store = { path = "crates/relay-store" }
 relay-providers = { path = "crates/relay-providers" }
 relay-engine = { path = "crates/relay-engine" }
+relay-daemon = { path = "crates/relay-daemon" }
 
 # The GPUI Kit release pins its matching GPUI snapshot. Keep this exact: mixing
 # snapshots breaks the pre-1.0 GPUI API.
@@ -55,6 +57,7 @@ tokio = { version = "1", features = [
     "fs",
     "io-util",
     "macros",
+    "net",
     "rt-multi-thread",
     "signal",
     "sync",

@@ -91,15 +91,18 @@ jobs:
           cp target/release/relay dist/relay-linux-x86_64
           cp target/release/relay-cli dist/relay-cli-linux-x86_64
           cp target/release/relay-clear dist/relay-clear-linux-x86_64
-          chmod +x dist/relay-linux-x86_64 dist/relay-cli-linux-x86_64 dist/relay-clear-linux-x86_64
+          cp target/release/relay-daemon-client dist/relay-daemon-client-linux-x86_64
+          chmod +x dist/relay-linux-x86_64 dist/relay-cli-linux-x86_64 dist/relay-clear-linux-x86_64 dist/relay-daemon-client-linux-x86_64
           ./dist/relay-cli-linux-x86_64 --version
           ./dist/relay-linux-x86_64 --version
           ./dist/relay-clear-linux-x86_64 > /dev/null
+          ./dist/relay-daemon-client-linux-x86_64 --help > /dev/null
           cp LICENSE README.md dist/
           cp packaging/io.github.csemanpeter.Relay.desktop dist/
           cp -r packaging/icons dist/icons
           tar -C dist -czf dist/release/relay-linux-x86_64.tar.gz \
             relay-linux-x86_64 relay-cli-linux-x86_64 relay-clear-linux-x86_64 \
+            relay-daemon-client-linux-x86_64 \
             README.md LICENSE io.github.csemanpeter.Relay.desktop icons
           cd dist/release
           sha256sum relay-linux-x86_64.tar.gz > SHA256SUMS-linux
@@ -119,11 +122,15 @@ jobs:
           lipo -create -output dist/relay-clear \
             target/aarch64-apple-darwin/release/relay-clear \
             target/x86_64-apple-darwin/release/relay-clear
-          chmod +x dist/relay dist/relay-cli dist/relay-clear
+          lipo -create -output dist/relay-daemon-client \
+            target/aarch64-apple-darwin/release/relay-daemon-client \
+            target/x86_64-apple-darwin/release/relay-daemon-client
+          chmod +x dist/relay dist/relay-cli dist/relay-clear dist/relay-daemon-client
           ./dist/relay-cli --version
           ./dist/relay --version
           ./dist/relay-clear > /dev/null
-          cp dist/relay dist/relay-cli dist/relay-clear dist/Relay.app/Contents/MacOS/
+          ./dist/relay-daemon-client --help > /dev/null
+          cp dist/relay dist/relay-cli dist/relay-clear dist/relay-daemon-client dist/Relay.app/Contents/MacOS/
           # The linked binaries are final; drop intermediate objects so the
           # DMG and archives have free space to work with.
           rm -rf target/aarch64-apple-darwin/release/deps target/aarch64-apple-darwin/release/build \
@@ -146,14 +153,15 @@ jobs:
           codesign --force --sign - dist/relay
           codesign --force --sign - dist/relay-cli
           codesign --force --sign - dist/relay-clear
+          codesign --force --sign - dist/relay-daemon-client
 
           cp LICENSE README.md dist/
           tar -C dist -czf dist/release/relay-macos-universal.tar.gz \
-            Relay.app relay relay-cli relay-clear README.md LICENSE
+            Relay.app relay relay-cli relay-clear relay-daemon-client README.md LICENSE
 
           mkdir -p dist/dmg/CLI
           cp -R dist/Relay.app dist/dmg/
-          cp dist/relay-cli dist/relay-clear dist/dmg/CLI/
+          cp dist/relay-cli dist/relay-clear dist/relay-daemon-client dist/dmg/CLI/
           cp dist/README.md dist/LICENSE dist/dmg/CLI/
           ln -s /Applications dist/dmg/Applications
           hdiutil create -volname "Relay" -srcfolder dist/dmg -ov -format UDZO \
@@ -170,14 +178,17 @@ jobs:
           Copy-Item target\release\relay.exe dist\relay.exe
           Copy-Item target\release\relay-cli.exe dist\relay-cli.exe
           Copy-Item target\release\relay-clear.exe dist\relay-clear.exe
+          Copy-Item target\release\relay-daemon-client.exe dist\relay-daemon-client.exe
           Copy-Item LICENSE, README.md dist\
           dist\relay-cli.exe --version | Out-Host
           if ($LASTEXITCODE -ne 0) { throw "relay-cli failed to start" }
           dist\relay-clear.exe | Out-Null
           if ($LASTEXITCODE -ne 0) { throw "relay-clear failed to start" }
+          dist\relay-daemon-client.exe --help | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "relay-daemon-client failed to start" }
           $gui = Start-Process -FilePath dist\relay.exe -ArgumentList "--version" -Wait -PassThru -NoNewWindow
           if ($gui.ExitCode -ne 0) { throw "relay failed to start" }
-          Compress-Archive -Force -Path dist\relay.exe, dist\relay-cli.exe, dist\relay-clear.exe, dist\README.md, dist\LICENSE -DestinationPath dist\release\relay-windows-x64.zip
+          Compress-Archive -Force -Path dist\relay.exe, dist\relay-cli.exe, dist\relay-clear.exe, dist\relay-daemon-client.exe, dist\README.md, dist\LICENSE -DestinationPath dist\release\relay-windows-x64.zip
 
           choco install innosetup --no-progress -y
           $env:RELAY_VERSION = "${{ steps.version.outputs.version }}"

@@ -49,6 +49,7 @@ Name: "addtopath"; Description: "Add the Relay CLI to the user PATH"; GroupDescr
 Source: "{#RepoRoot}\dist\relay.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\dist\relay-cli.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\dist\relay-clear.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#RepoRoot}\dist\relay-daemon-client.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 

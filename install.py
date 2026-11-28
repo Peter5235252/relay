@@ -181,7 +181,7 @@ def ensure_rustup() -> None:
 
 def build(vs: Path | None, debug: bool) -> None:
     cargo = shutil.which("cargo") or str(CARGO_BIN / ("cargo.exe" if os.name == "nt" else "cargo"))
-    args = ["build", "--locked", "-p", "relay-ui", "-p", "relay-cli"] if debug else ["relay-build"]
+    args = ["build", "--locked", "-p", "relay-ui", "-p", "relay-cli", "-p", "relay-daemon"] if debug else ["relay-build"]
     if os.name == "nt":
         devcmd = vs / "Common7" / "Tools" / "VsDevCmd.bat"
         arch = "arm64" if platform.machine().lower() in {"arm64", "aarch64"} else "x64"
@@ -196,7 +196,7 @@ def build_output(name: str, debug: bool) -> Path:
 
 def copy_binaries(destination: Path, debug: bool) -> None:
     destination.mkdir(parents=True, exist_ok=True)
-    for name in ("relay", "relay-cli", "relay-clear"):
+    for name in ("relay", "relay-cli", "relay-clear", "relay-daemon-client"):
         source = build_output(name, debug)
         if not source.is_file():
             raise RuntimeError(f"Expected build output was not created: {source}")
@@ -266,7 +266,7 @@ def install_windows(debug: bool) -> None:
     print(f"Installed Relay to {app}. Open Relay from the Start menu or use relay-cli in a new terminal.")
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Install build dependencies, build Relay desktop and CLI, and install them for the current user.")
+    parser = argparse.ArgumentParser(description="Install build dependencies, build Relay desktop, CLI, and daemon client, and install them for the current user.")
     parser.add_argument("--skip-system-deps", action="store_true", help="Do not install OS packages; use when dependencies are already installed.")
     parser.add_argument("--no-install", action="store_true", help="Build the applications without installing them.")
     parser.add_argument("--debug", action="store_true", help="Use the faster Cargo debug profile instead of release.")
@@ -282,7 +282,7 @@ def main() -> int:
     else:
         raise RuntimeError("Relay source installer supports Linux, macOS, and Windows 11.")
     ensure_rustup()
-    print("Building Relay desktop app and CLI...", flush=True)
+    print("Building Relay desktop app, CLI, and daemon client...", flush=True)
     build(vs, args.debug)
     if not args.no_install:
         if sys.platform.startswith("linux"): install_linux(args.debug)

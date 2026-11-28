@@ -1,0 +1,29 @@
+[package]
+name = "relay-daemon"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Local JSON-RPC daemon for Relay."
+
+[dependencies]
+chrono.workspace = true
+relay-core.workspace = true
+relay-engine.workspace = true
+relay-providers.workspace = true
+relay-store.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["net"] }
+tokio-util.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+
+[[bin]]
+name = "relay-daemon-client"
+path = "src/bin/relay-daemon-client.rs"
+
+[lints]
+workspace = true
